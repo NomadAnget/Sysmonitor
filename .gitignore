@@ -28,3 +28,4 @@ make_ico.py
 
 # uv 虚拟环境 (pyproject/uv.lock/.python-version 需入库供 CI 复现)
 .venv/
+SysMonitor.cmd
