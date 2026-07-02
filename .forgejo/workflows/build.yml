@@ -23,7 +23,7 @@ jobs:
         run: >
           uv run python -m nuitka --standalone --onefile
           --windows-disable-console --plugin-enable=pyqt6
-          --include-data-dir=libs=libs
+          --include-raw-dir=libs=libs
           --windows-icon-from-ico=libs/logo.ico
           --assume-yes-for-downloads
           -o SysMonitor.exe monitor.py

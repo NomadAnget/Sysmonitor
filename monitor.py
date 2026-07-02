@@ -23,6 +23,19 @@ import winreg
 
 import psutil
 
+
+def res_path(*parts):
+    """资源文件绝对路径, 兼容三种运行方式:
+    - 源码运行:            __file__ = 项目目录/monitor.py
+    - Nuitka onefile:      __file__ = 解包临时目录/monitor.py (数据文件在此!)
+    - PyInstaller onefile: sys._MEIPASS = 解包临时目录
+    注意不能用 sys.executable/cwd —— onefile 下 exe 位置与数据解包位置无关。
+    """
+    base = getattr(sys, "_MEIPASS",
+                   os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, *parts)
+
+
 from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, QSize, QEvent
 from PyQt6.QtGui import (
     QColor, QPainter, QPen, QBrush, QPolygonF, QLinearGradient, QAction,
@@ -548,25 +561,19 @@ class CpuSensors:
             from pythonnet import load
             load("netfx")          # 用 .NET Framework 运行时
             import clr
-            # 打包(PyInstaller)时 libs 在解压临时目录 _MEIPASS, 否则脚本同级
-            # 同时兼容 PyInstaller (_MEIPASS) 和 Nuitka (单文件临时释放路径)
-            if getattr(sys, "frozen", False):
-                # 如果是 Nuitka onefile 运行，它会将数据文件释放到 exe 同级或临时目录
-                # 我们优先检查当前运行 exe 所在的真实目录或 Nuitka/PyInstaller 的内部释放路径
-                base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
-            else:
-                base = os.path.dirname(os.path.abspath(__file__))
-
-            libs = os.path.join(base, "libs")
-
-            # 【核心防护】如果上述路径依然没找到 dll，尝试从当前工作目录的相对路径中死马当活马医
+            # libs 跟随数据解包位置 (res_path 已兼容源码/Nuitka/PyInstaller);
+            # 兜底再试 exe 同级与 cwd
+            libs = res_path("libs")
             if not os.path.exists(os.path.join(libs, "LibreHardwareMonitorLib.dll")):
-                libs = os.path.join(os.getcwd(), "libs")
+                for cand in (os.path.join(os.path.dirname(sys.executable), "libs"),
+                             os.path.join(os.getcwd(), "libs")):
+                    if os.path.exists(os.path.join(cand, "LibreHardwareMonitorLib.dll")):
+                        libs = cand
+                        break
             if libs not in sys.path:
                 sys.path.append(libs)
-            if hasattr(sys, "_MEIPASS"):
-                # 让原生加载器能在该目录找到依赖 DLL
-                os.environ["PATH"] = libs + os.pathsep + os.environ["PATH"]
+            # 让 .NET 原生加载器能在该目录找到依赖 DLL (打包与源码运行均无害)
+            os.environ["PATH"] = libs + os.pathsep + os.environ["PATH"]
             clr.AddReference("LibreHardwareMonitorLib")
             from LibreHardwareMonitor.Hardware import (
                 Computer, HardwareType, SensorType)
@@ -833,7 +840,9 @@ class MonitorWindow(QWidget):
         # 先按系统色定一次, 供后续构建的部件引用类属性 (bar_style / Sparkline 等)
         self.theme_mode = "system"          # system / dark / light
         self._resolve_colors("system")
-        self.icon = QIcon("libs/logo.ico")
+        # 绝对路径加载: 相对路径依赖 cwd, 打包后 exe 不在项目目录时会加载失败
+        # (表现为窗口/任务栏/托盘图标全空, 且托盘失效导致无法最小化驻留)
+        self.icon = QIcon(res_path("libs", "logo.ico"))
         self.setWindowTitle("系统监控")
         self.setFixedWidth(700)
         self.setStyleSheet(self._build_qss())
@@ -1193,6 +1202,21 @@ class MonitorWindow(QWidget):
         self.showNormal()
         self.raise_()
         self.activateWindow()
+
+    # ---- 单实例: 接收后续启动的"亮窗"通知 ---------------------------------
+    def start_single_instance_server(self, name):
+        from PyQt6.QtNetwork import QLocalServer
+        QLocalServer.removeServer(name)   # 清理上次异常退出的残留
+        self._ipc = QLocalServer(self)
+        self._ipc.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
+        self._ipc.newConnection.connect(self._on_instance_ping)
+        self._ipc.listen(name)
+
+    def _on_instance_ping(self):
+        while self._ipc.hasPendingConnections():
+            conn = self._ipc.nextPendingConnection()
+            conn.close()
+        self._restore()
 
     def _quit(self):
         self._force_quit = True
@@ -1620,19 +1644,65 @@ def _try_elevate():
         return False
 
 
-def main():
-    # 启动时自动尝试 UAC 提权 (为了用 ETW 读取每进程网络流量)。
-    # 同意 -> 提权实例接管, 本实例退出; 拒绝/失败 -> 继续以普通权限运行。
-    is_elevated_child = "--elevated" in sys.argv
-    if not is_elevated_child and not ctypes.windll.shell32.IsUserAnAdmin():
-        if _try_elevate():
-            return
+# 单实例: 互斥体名 (检测) 与本地套接字名 (唤醒已有窗口)
+_MUTEX_NAME = "Local\\SysMonitor_SingleInstance_Mutex"
+_IPC_NAME = "SysMonitor_SingleInstance_IPC"
+_mutex_handle = None
 
+
+def _acquire_single_instance(retries=1):
+    """尝试成为唯一实例 (命名互斥体)。成功返回句柄, 已有实例运行返回 None。
+
+    UAC 提权的子实例需带重试: 父实例释放句柄与子实例启动存在竞态。
+    """
+    k32 = ctypes.windll.kernel32
+    for i in range(retries):
+        handle = k32.CreateMutexW(None, False, _MUTEX_NAME)
+        if k32.GetLastError() != 183:      # ERROR_ALREADY_EXISTS
+            return handle
+        k32.CloseHandle(handle)
+        if i < retries - 1:
+            time.sleep(0.4)
+    return None
+
+
+def _notify_existing_instance():
+    """通知已运行的实例把窗口亮出来 (连上即触发, 无需发送数据)。"""
+    try:
+        from PyQt6.QtNetwork import QLocalSocket
+        sock = QLocalSocket()
+        sock.connectToServer(_IPC_NAME)
+        sock.waitForConnected(500)
+        sock.disconnectFromServer()
+    except Exception:
+        pass
+
+
+def main():
+    global _mutex_handle
+    is_elevated_child = "--elevated" in sys.argv
     qt_args = [a for a in sys.argv if a != "--elevated"]
     app = QApplication(qt_args)
+
+    # 1) 单实例检查 (在 UAC 之前: 重复启动不弹提权框, 直接唤醒已有窗口)
+    _mutex_handle = _acquire_single_instance(retries=5 if is_elevated_child else 1)
+    if _mutex_handle is None:
+        _notify_existing_instance()
+        return
+
+    # 2) 自动 UAC 提权 (为 ETW 每进程网络与 LHM 温度驱动)。
+    #    同意 -> 提权实例接管 (释放互斥体让位); 拒绝/失败 -> 继续普通权限运行。
+    if (not is_elevated_child
+            and not ctypes.windll.shell32.IsUserAnAdmin()):
+        if _try_elevate():
+            ctypes.windll.kernel32.CloseHandle(_mutex_handle)
+            return
+
+    # 3) 正式成为主实例
     # 隐藏到托盘后不因"最后一个窗口关闭"而退出程序
     app.setQuitOnLastWindowClosed(False)
     win = MonitorWindow()
+    win.start_single_instance_server(_IPC_NAME)
     win.show()
     sys.exit(app.exec())
 
