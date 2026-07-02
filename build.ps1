@@ -6,7 +6,7 @@ Set-Location $PSScriptRoot
 python -m pip install --upgrade pip --quiet
 python -m pip install -r requirements.txt pyinstaller --quiet
 
-pyinstaller SysMonitor.spec --noconfirm
+python -m PyInstaller SysMonitor.spec --noconfirm
 
 if (Test-Path "dist\SysMonitor.exe") {
     $size = (Get-Item "dist\SysMonitor.exe").Length / 1MB

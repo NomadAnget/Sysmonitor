@@ -19,7 +19,8 @@ jobs:
           python -m pip install -r requirements.txt pyinstaller
 
       - name: Build with PyInstaller
-        run: pyinstaller SysMonitor.spec --noconfirm
+        # 用模块方式调用, 不依赖 Scripts 目录在 PATH (商店版 Python 的后台会话没有)
+        run: python -m PyInstaller SysMonitor.spec --noconfirm
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3
