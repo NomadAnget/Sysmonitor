@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# PyInstaller 构建产物
+build/
+dist/
+dist.zip
+
+# 编辑器
+.vscode/
+
+# 本地备份 / 临时测试
+monitor_backup_*.py
+mica_test.py

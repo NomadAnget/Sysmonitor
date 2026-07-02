@@ -1,0 +1,11 @@
+PyQt6>=6.4
+psutil>=5.9
+# NVIDIA GPU 监控 (可选, 没有 NVIDIA 卡时可不装)
+nvidia-ml-py>=12.0
+# Windows 下读取"每进程显存占用"(WDDM 模式 NVML 无法提供, 改用性能计数器)
+pywin32>=305 ; sys_platform == "win32"
+# Windows 下读取"每进程网络流量"(ETW 内核追踪, 需以管理员身份运行)
+pywintrace>=0.2 ; sys_platform == "win32"
+# Windows 下读取 CPU 温度/功耗: 用 pythonnet 加载 libs/ 下的
+# LibreHardwareMonitorLib.dll (MPL-2.0); 需 .NET Framework 4.7.2+ 与管理员权限
+pythonnet>=3.0 ; sys_platform == "win32"
