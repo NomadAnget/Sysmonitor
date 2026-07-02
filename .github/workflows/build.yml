@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    # GitHub 免费托管的 Windows runner
+    # GitHub 托管 Windows runner (自带 MSVC, Nuitka 直接可用)
     runs-on: windows-latest
     # Forgejo Actions 也会读取 .github/workflows/, 但它没有 windows-latest
     # 标签的 runner 会导致任务永久排队 —— 此条件保证仅在 GitHub 上执行
@@ -15,26 +15,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.13"
+          enable-cache: true
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pyinstaller
+      - name: Sync environment
+        run: uv sync --group dev
 
-      - name: Build with PyInstaller
-        run: python -m PyInstaller SysMonitor.spec --noconfirm
+      - name: Build with Nuitka
+        # Nuitka 为 C 编译, 全新环境下 PyQt6 项目耗时较长属正常
+        run: >
+          uv run python -m nuitka --standalone --onefile
+          --windows-disable-console --plugin-enable=pyqt6
+          --include-data-dir=libs=libs
+          --windows-icon-from-ico=libs/logo.ico
+          --assume-yes-for-downloads
+          -o SysMonitor.exe monitor.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: SysMonitor
-          path: dist/SysMonitor.exe
+          path: SysMonitor.exe
 
       - name: Create GitHub release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/SysMonitor.exe
+          files: SysMonitor.exe

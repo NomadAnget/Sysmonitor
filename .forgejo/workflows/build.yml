@@ -7,26 +7,31 @@ on:
 
 jobs:
   build:
-    # 构建 Windows exe 必须用 Windows runner (PyInstaller 不支持交叉编译);
-    # 需在 Forgejo 上注册一个标签为 windows 的自托管 runner
+    # 构建 Windows exe 必须用 Windows runner (Nuitka 不支持交叉编译);
+    # 自托管 runner 标签 windows (host 模式), 机器需已安装 uv 与 C 编译器
     runs-on: windows
     # 双保险: 这版 Forgejo 对 tags 过滤不严, 普通 push 也会触发, 这里再拦一次
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pyinstaller
+      - name: Sync environment (uv)
+        run: uv sync --group dev
 
-      - name: Build with PyInstaller
-        # 用模块方式调用, 不依赖 Scripts 目录在 PATH (商店版 Python 的后台会话没有)
-        run: python -m PyInstaller SysMonitor.spec --noconfirm
+      - name: Build with Nuitka
+        # 与本地构建命令一致; CI 中不加 --clean-cache=all 以复用编译缓存,
+        # --assume-yes-for-downloads 允许非交互下载依赖工具
+        run: >
+          uv run python -m nuitka --standalone --onefile
+          --windows-disable-console --plugin-enable=pyqt6
+          --include-data-dir=libs=libs
+          --windows-icon-from-ico=libs/logo.ico
+          --assume-yes-for-downloads
+          -o SysMonitor.exe monitor.py
 
       # 不用 upload-artifact: 其上传地址由服务器按公网 ROOT_URL 下发,
-      # 会被 openresty 反代 403; 且 act_runner v0.2.13 不支持 continue-on-error,
-      # 一失败就挂整个 job。产物统一通过下面的 Release 内网直传发布。
+      # 会被 openresty 反代 403; 且 act_runner v0.2.13 不支持 continue-on-error。
+      # 产物统一通过下面的 Release 内网直传发布。
       - name: Create release and attach exe (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
         # 用 Windows 自带的 powershell 5.1 (机器上未装 pwsh 7)
@@ -45,7 +50,7 @@ jobs:
             -ContentType "application/json" `
             -Body (@{ tag_name = $env:TAG; name = $env:TAG } | ConvertTo-Json)
           curl.exe -sf -X POST -H "Authorization: token $env:TOKEN" `
-            -F "attachment=@dist/SysMonitor.exe" `
+            -F "attachment=@SysMonitor.exe" `
             "$env:API/repos/$env:REPO/releases/$($rel.id)/assets?name=SysMonitor.exe"
-          # 输出用英文: PS 5.1 按 GBK 读无 BOM 的 UTF-8 脚本, 中文会乱码
+          # Output in English: PS 5.1 reads BOM-less UTF-8 scripts as GBK
           Write-Host "Release $env:TAG created with SysMonitor.exe attached"
