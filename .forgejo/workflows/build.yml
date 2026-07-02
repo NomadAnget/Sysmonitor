@@ -47,4 +47,5 @@ jobs:
           curl.exe -sf -X POST -H "Authorization: token $env:TOKEN" `
             -F "attachment=@dist/SysMonitor.exe" `
             "$env:API/repos/$env:REPO/releases/$($rel.id)/assets?name=SysMonitor.exe"
-          Write-Host "Release $env:TAG 已创建并附加 SysMonitor.exe"
+          # 输出用英文: PS 5.1 按 GBK 读无 BOM 的 UTF-8 脚本, 中文会乱码
+          Write-Host "Release $env:TAG created with SysMonitor.exe attached"
