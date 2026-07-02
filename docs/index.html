@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SysMonitor — Windows 系统监控面板</title>
+<meta name="description" content="PyQt6 打造的 Windows 系统监控工具：CPU / 内存 / 网络 / 多 GPU 实时监控，每进程显存与流量，Mica 云母材质。">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-soft: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --sub: #8b949e;
+    --accent: #3fb950;
+    --accent2: #1f6feb;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  header {
+    padding: 96px 0 64px;
+    text-align: center;
+    background:
+      radial-gradient(ellipse 60% 50% at 50% -10%, rgba(31,111,235,.25), transparent),
+      radial-gradient(ellipse 40% 40% at 80% 10%, rgba(63,185,80,.12), transparent);
+  }
+  h1 { font-size: 56px; letter-spacing: -1px; }
+  h1 .dot { color: var(--accent); }
+  .tagline { font-size: 20px; color: var(--sub); margin: 16px auto 36px; max-width: 640px; }
+  .btns { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 12px 32px; border-radius: 8px;
+    font-size: 16px; font-weight: 600; text-decoration: none;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #2ea043);
+    color: #fff; box-shadow: 0 4px 24px rgba(63,185,80,.35);
+  }
+  .btn-ghost { border: 1px solid var(--border); color: var(--text); }
+  .btn-ghost:hover { border-color: var(--accent2); }
+  .meta { margin-top: 20px; color: var(--sub); font-size: 14px; }
+
+  section { padding: 64px 0; }
+  h2 { font-size: 32px; text-align: center; margin-bottom: 40px; }
+  h2::after {
+    content: ""; display: block; width: 48px; height: 3px;
+    background: var(--accent); margin: 12px auto 0; border-radius: 2px;
+  }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+  .card {
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: 10px; padding: 24px;
+  }
+  .card h3 { font-size: 18px; margin-bottom: 10px; }
+  .card h3 .ico { margin-right: 8px; }
+  .card p { color: var(--sub); font-size: 14.5px; }
+  .card code {
+    background: rgba(110,118,129,.2); padding: 1px 6px;
+    border-radius: 4px; font-size: 13px;
+  }
+
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+  .shot { text-align: center; }
+  .shot img {
+    width: 100%; border-radius: 10px; border: 1px solid var(--border);
+    box-shadow: 0 8px 40px rgba(0,0,0,.45);
+  }
+  .shot figcaption { margin-top: 12px; color: var(--sub); font-size: 14px; }
+
+  .dl { text-align: center; background: var(--bg-soft); border-radius: 14px; padding: 56px 24px; border: 1px solid var(--border); }
+  .dl p { color: var(--sub); margin: 12px 0 28px; }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 0; text-align: center; color: var(--sub); font-size: 14px;
+  }
+  footer a { color: var(--sub); }
+  @media (max-width: 640px) { h1 { font-size: 40px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>SysMonitor<span class="dot">.</span></h1>
+    <p class="tagline">PyQt6 打造的 Windows 系统监控面板 —— CPU / 内存 / 网络 / 多 GPU 实时监控，精确到每个进程。</p>
+    <div class="btns">
+      <a class="btn btn-primary" href="https://github.com/NomadAnget/Sysmonitor/releases/latest">下载最新版</a>
+      <a class="btn btn-ghost" href="https://github.com/NomadAnget/Sysmonitor">GitHub 源码</a>
+    </div>
+    <p class="meta">Windows 10 / 11 · 单文件 exe（Nuitka 原生编译，约 22 MB）· MIT 开源</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>三种主题，跟随系统</h2>
+    <div class="shots">
+      <figure class="shot">
+        <img src="theme-system.png" alt="随系统主题">
+        <figcaption>随系统 — 实时跟随 Windows 深浅色与强调色</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="theme-dark.png" alt="暗色主题">
+        <figcaption>暗色 — GitHub 风深色界面</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="theme-light.png" alt="浅色主题">
+        <figcaption>浅色 — 明亮通透</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>功能一览</h2>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="ico">🖥️</span>CPU 全维监控</h3>
+        <p>总占用与每核心占用、历史曲线、DTS 真实温度、EMI 硬件功耗、随睿频实时变化的当前频率。</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">🎮</span>多 GPU 自适应</h3>
+        <p>每张卡独立卡片：使用率曲线、显存、温度 / 功耗 / 频率 / 编解码，标题实时显示 PCIe 链路（<code>x8 4.0 @ x1 1.1</code>）。</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">📊</span>每进程显存</h3>
+        <p>任务管理器同源数据，按 CUDA luid 精确归卡；WSL2 的占用一眼识别（归属 <code>vmwp.exe</code>）。</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">🌐</span>每进程网络流量</h3>
+        <p>ETW 内核级追踪，实时列出占用带宽最高的进程；总上下行速率常驻显示。</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">🧠</span>内存明细</h3>
+        <p>物理 / 交换占用、内存条频率、占用最高的进程排行，后台枚举不卡界面。</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">✨</span>Mica 云母材质</h3>
+        <p>Windows 11 原生 DWM 背景材质，三态主题切换，窗口置顶，托盘常驻，分区刷新频率可调。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="dl">
+      <h2>开始使用</h2>
+      <p>下载单文件 exe 双击即用，无需安装。首次启动请求管理员权限（用于进程级监控），拒绝亦可降级运行。</p>
+      <a class="btn btn-primary" href="https://github.com/NomadAnget/Sysmonitor/releases/latest">下载 SysMonitor.exe</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>MIT License · 内置 LibreHardwareMonitor 等第三方组件（MPL-2.0 / Apache-2.0 / MIT）</p>
+    <p><a href="https://github.com/NomadAnget/Sysmonitor">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
