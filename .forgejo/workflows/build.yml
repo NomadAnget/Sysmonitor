@@ -44,12 +44,31 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $headers = @{ Authorization = "token $env:TOKEN" }
-          $rel = Invoke-RestMethod -Method Post -Headers $headers `
-            -Uri "$env:API/repos/$env:REPO/releases" `
-            -ContentType "application/json" `
-            -Body (@{ tag_name = $env:TAG; name = $env:TAG } | ConvertTo-Json)
+          # Reuse existing release for this tag (re-run safety), else create
+          $rel = $null
+          try {
+            $rel = Invoke-RestMethod -Headers $headers `
+              -Uri "$env:API/repos/$env:REPO/releases/tags/$env:TAG"
+            Write-Host "Reusing existing release id=$($rel.id)"
+          } catch { }
+          if (-not $rel) {
+            try {
+              $rel = Invoke-RestMethod -Method Post -Headers $headers `
+                -Uri "$env:API/repos/$env:REPO/releases" `
+                -ContentType "application/json" `
+                -Body (@{ tag_name = $env:TAG; name = $env:TAG } | ConvertTo-Json)
+            } catch {
+              $resp = $_.Exception.Response
+              if ($resp) {
+                $sr = New-Object IO.StreamReader($resp.GetResponseStream())
+                Write-Host ("Create release failed: HTTP {0}  body: {1}" -f `
+                  [int]$resp.StatusCode, $sr.ReadToEnd())
+              }
+              throw
+            }
+          }
           curl.exe -sf -X POST -H "Authorization: token $env:TOKEN" `
             -F "attachment=@SysMonitor.exe" `
             "$env:API/repos/$env:REPO/releases/$($rel.id)/assets?name=SysMonitor.exe"
-          # Output in English: PS 5.1 reads BOM-less UTF-8 scripts as GBK
-          Write-Host "Release $env:TAG created with SysMonitor.exe attached"
+          if ($LASTEXITCODE -ne 0) { throw "asset upload failed: $LASTEXITCODE" }
+          Write-Host "Release $env:TAG done with SysMonitor.exe attached"
