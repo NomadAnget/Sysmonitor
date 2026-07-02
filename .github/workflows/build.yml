@@ -24,14 +24,10 @@ jobs:
         run: uv sync --group dev
 
       - name: Build with Nuitka
-        # Nuitka 为 C 编译, 全新环境下 PyQt6 项目耗时较长属正常
-        run: >
-          uv run python -m nuitka --standalone --onefile
-          --windows-disable-console --plugin-enable=pyqt6
-          --include-data-dir=libs=libs
-          --windows-icon-from-ico=libs/logo.ico
-          --assume-yes-for-downloads
-          -o SysMonitor.exe monitor.py
+        # 用 cmd 单行执行: 参数原样传递, 绕开 pwsh 对长选项的解析差异
+        # (曾出现 --windows-disable-console/--include-data-dir/图标 选项被吞)
+        shell: cmd
+        run: uv run python -m nuitka --standalone --onefile --windows-disable-console --plugin-enable=pyqt6 --include-data-dir=libs=libs --windows-icon-from-ico=libs/logo.ico --assume-yes-for-downloads -o SysMonitor.exe monitor.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

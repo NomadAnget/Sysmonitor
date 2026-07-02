@@ -19,8 +19,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Build with Nuitka
-        # 与本地构建命令一致; CI 中不加 --clean-cache=all 以复用编译缓存,
-        # --assume-yes-for-downloads 允许非交互下载依赖工具
+        # 与本地构建命令一致; CI 中不加 --clean-cache=all 以复用编译缓存
         run: >
           uv run python -m nuitka --standalone --onefile
           --windows-disable-console --plugin-enable=pyqt6
