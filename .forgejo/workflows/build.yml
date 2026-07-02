@@ -29,7 +29,8 @@ jobs:
       # 一失败就挂整个 job。产物统一通过下面的 Release 内网直传发布。
       - name: Create release and attach exe (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
+        # 用 Windows 自带的 powershell 5.1 (机器上未装 pwsh 7)
+        shell: powershell
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 内网直连 Forgejo, 绕开公网反代的上传限制
