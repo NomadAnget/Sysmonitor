@@ -75,11 +75,11 @@ git push origin master v1.x.x
 
 | 数据 | 来源 | 条件 / 限制 |
 |------|------|------------|
-| CPU 温度 | LibreHardwareMonitor（WinRing0 驱动读 MSR） | 需管理员；系统开启「内存完整性 (HVCI)」时被拦截，显示 N/A |
+| CPU 温度 | LibreHardwareMonitor（WinRing0 驱动读 MSR） | 需管理员
 | CPU 功耗 | EMI 能量计数器 | 无需驱动，HVCI 兼容 |
 | CPU 实时频率 | `% Processor Performance` 计数器 | 无需驱动 |
 | 每进程显存 | `GPU Process Memory` 计数器（PDH 底层数组接口，保留同名多块分配） | NVML 在 WDDM 模式不提供，故走系统计数器 |
-| 每进程网络 | ETW 内核网络事件 | 需管理员；WSL2 镜像网络模式的流量宿主侧不可归属（仅计入总量） |
+| 每进程网络 | ETW 内核网络事件 | WSL2 镜像网络模式的流量宿主侧不可归属（仅计入总量） |
 | GPU 全部指标 | NVML（nvidia-ml-py） | 仅 NVIDIA；无 GPU 时优雅降级 |
 
 ## 许可证
