@@ -10,6 +10,8 @@ jobs:
     # 构建 Windows exe 必须用 Windows runner (PyInstaller 不支持交叉编译);
     # 需在 Forgejo 上注册一个标签为 windows 的自托管 runner
     runs-on: windows
+    # 双保险: 这版 Forgejo 对 tags 过滤不严, 普通 push 也会触发, 这里再拦一次
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +25,8 @@ jobs:
         run: python -m PyInstaller SysMonitor.spec --noconfirm
 
       - name: Upload artifact
+        # 上传经公网反代 (ROOT_URL) 会被 openresty 403, 允许失败; 产物以 Release 为准
+        continue-on-error: true
         uses: actions/upload-artifact@v3
         with:
           name: SysMonitor
@@ -33,10 +37,12 @@ jobs:
         shell: pwsh
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          API: ${{ github.api_url }}
+          # 内网直连 Forgejo, 绕开公网反代的上传限制
+          API: http://debian.lan:3257/api/v1
           REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
+          $ErrorActionPreference = "Stop"
           $headers = @{ Authorization = "token $env:TOKEN" }
           $rel = Invoke-RestMethod -Method Post -Headers $headers `
             -Uri "$env:API/repos/$env:REPO/releases" `
@@ -45,3 +51,4 @@ jobs:
           curl.exe -sf -X POST -H "Authorization: token $env:TOKEN" `
             -F "attachment=@dist/SysMonitor.exe" `
             "$env:API/repos/$env:REPO/releases/$($rel.id)/assets?name=SysMonitor.exe"
+          Write-Host "Release $env:TAG 已创建并附加 SysMonitor.exe"
