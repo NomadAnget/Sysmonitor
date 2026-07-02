@@ -1623,9 +1623,8 @@ def _try_elevate():
 def main():
     # 启动时自动尝试 UAC 提权 (为了用 ETW 读取每进程网络流量)。
     # 同意 -> 提权实例接管, 本实例退出; 拒绝/失败 -> 继续以普通权限运行。
-    if (sys.platform.startswith("win")
-            and "--elevated" not in sys.argv
-            and not _is_admin()):
+    is_elevated_child = "--elevated" in sys.argv
+    if not is_elevated_child and not ctypes.windll.shell32.IsUserAnAdmin():
         if _try_elevate():
             return
 

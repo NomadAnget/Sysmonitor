@@ -7,6 +7,9 @@ build/
 dist/
 dist.zip
 
+# 构建缓存
+*.dist/
+
 # 编辑器
 .vscode/
 
@@ -18,6 +21,7 @@ mica_test.py
 main.py
 *.exe
 *.png
+!docs/*.png
 *.psd
 nuitka-crash-report.xml
 make_ico.py
