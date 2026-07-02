@@ -13,3 +13,13 @@ dist.zip
 # 本地备份 / 临时测试
 monitor_backup_*.py
 mica_test.py
+
+# 临时排除
+main.py
+*.exe
+*.png
+*.psd
+nuitka-crash-report.xml
+make_ico.py
+.python-version
+.gitignore

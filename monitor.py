@@ -26,7 +26,7 @@ import psutil
 from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, QSize, QEvent
 from PyQt6.QtGui import (
     QColor, QPainter, QPen, QBrush, QPolygonF, QLinearGradient, QAction,
-    QPalette,
+    QPalette,QIcon,
 )
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QProgressBar, QVBoxLayout, QHBoxLayout,
@@ -502,7 +502,7 @@ class CpuSensors:
 
     功耗: Windows 内置 EMI 能量计量计数器 \\Energy Meter(*_PKG)\\Power
           (单位 mW, /1000=W)。纯 win32pdh, 无需驱动, 不受内存完整性(HVCI)限制。
-    频率: 标称频率 × (\\Processor Information(_Total)\\% Processor Performance / 100),
+    频率: 标称频率 x (\\Processor Information(_Total)\\% Processor Performance / 100),
           即随睿频/降频变化的实时频率, 同样走 win32pdh。
     温度: pythonnet 加载 LibreHardwareMonitor 读 CPU Package 的 DTS 温度。
           LHM 自带的内核驱动兼容 HVCI; 仅在缺 pythonnet/.NET/管理员权限或驱动
@@ -526,7 +526,7 @@ class CpuSensors:
             pdh = win32pdh
             qh = win32pdh.OpenQuery()
             ch = win32pdh.AddEnglishCounter(qh, r"\Energy Meter(*)\Power")
-            # 实时频率 = 标称频率 × (% Processor Performance / 100)
+            # 实时频率 = 标称频率 x (% Processor Performance / 100)
             ch_freq = win32pdh.AddEnglishCounter(
                 qh, r"\Processor Information(_Total)\% Processor Performance")
             win32pdh.CollectQueryData(qh)
@@ -549,9 +549,19 @@ class CpuSensors:
             load("netfx")          # 用 .NET Framework 运行时
             import clr
             # 打包(PyInstaller)时 libs 在解压临时目录 _MEIPASS, 否则脚本同级
-            base = getattr(sys, "_MEIPASS",
-                           os.path.dirname(os.path.abspath(__file__)))
+            # 同时兼容 PyInstaller (_MEIPASS) 和 Nuitka (单文件临时释放路径)
+            if getattr(sys, "frozen", False):
+                # 如果是 Nuitka onefile 运行，它会将数据文件释放到 exe 同级或临时目录
+                # 我们优先检查当前运行 exe 所在的真实目录或 Nuitka/PyInstaller 的内部释放路径
+                base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+            else:
+                base = os.path.dirname(os.path.abspath(__file__))
+
             libs = os.path.join(base, "libs")
+
+            # 【核心防护】如果上述路径依然没找到 dll，尝试从当前工作目录的相对路径中死马当活马医
+            if not os.path.exists(os.path.join(libs, "LibreHardwareMonitorLib.dll")):
+                libs = os.path.join(os.getcwd(), "libs")
             if libs not in sys.path:
                 sys.path.append(libs)
             if hasattr(sys, "_MEIPASS"):
@@ -823,7 +833,7 @@ class MonitorWindow(QWidget):
         # 先按系统色定一次, 供后续构建的部件引用类属性 (bar_style / Sparkline 等)
         self.theme_mode = "system"          # system / dark / light
         self._resolve_colors("system")
-
+        self.icon = QIcon("libs/logo.ico")
         self.setWindowTitle("系统监控")
         self.setFixedWidth(700)
         self.setStyleSheet(self._build_qss())
@@ -1158,10 +1168,8 @@ class MonitorWindow(QWidget):
     # ---- 系统托盘 ----------------------------------------------------------
     def _build_tray(self):
         self._force_quit = False
-        icon = self.style().standardIcon(
-            QStyle.StandardPixmap.SP_ComputerIcon)
-        self.setWindowIcon(icon)
-        self.tray = QSystemTrayIcon(icon, self)
+        self.setWindowIcon(self.icon)
+        self.tray = QSystemTrayIcon(self.icon, self)
         self.tray.setToolTip("系统监控")
 
         menu = QMenu()
