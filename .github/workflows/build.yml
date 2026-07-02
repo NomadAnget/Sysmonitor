@@ -1,0 +1,40 @@
+name: Build EXE (GitHub)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # GitHub 免费托管的 Windows runner
+    runs-on: windows-latest
+    # Forgejo Actions 也会读取 .github/workflows/, 但它没有 windows-latest
+    # 标签的 runner 会导致任务永久排队 —— 此条件保证仅在 GitHub 上执行
+    if: github.server_url == 'https://github.com'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build with PyInstaller
+        run: python -m PyInstaller SysMonitor.spec --noconfirm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SysMonitor
+          path: dist/SysMonitor.exe
+
+      - name: Create GitHub release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/SysMonitor.exe
