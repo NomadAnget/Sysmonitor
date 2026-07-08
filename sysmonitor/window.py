@@ -98,7 +98,7 @@ class MonitorWindow(QWidget):
         self.gpu.set_interval(interval)
         self.mem_timer = QTimer(self)
         self.mem_timer.timeout.connect(self.refresh_mem)
-        self.mem_timer.start(100)
+        self.mem_timer.start(500)
         self.net_timer = QTimer(self)
         self.net_timer.timeout.connect(self.refresh_net)
         self.net_timer.start(1000)
