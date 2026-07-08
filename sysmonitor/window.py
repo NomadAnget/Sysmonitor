@@ -418,6 +418,16 @@ class MonitorWindow(QWidget):
         self.cpu_extra = QLabel("")
         self.cpu_extra.setProperty("kind", "sub")
         lay.addWidget(self.cpu_extra)
+
+        self.cpu_proc_label = QLabel("")
+        self.cpu_proc_label.setProperty("kind", "sub")
+        self.cpu_proc_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        lay.addWidget(self.cpu_proc_label)
+
+        self._cpu_proc_top = []
+        threading.Thread(target=self._cpu_proc_worker, daemon=True).start()
         return box
 
     def _build_memory(self):
@@ -461,6 +471,20 @@ class MonitorWindow(QWidget):
                     continue
             procs.sort(key=lambda x: x[1], reverse=True)
             self._mem_proc_top = procs[:6]
+            time.sleep(1.0)
+
+    def _cpu_proc_worker(self):
+        while True:
+            procs = []
+            for p in psutil.process_iter(["name", "cpu_percent"]):
+                try:
+                    procs.append(
+                        (p.info["name"] or f"PID{p.pid}", p.info["cpu_percent"] or 0)
+                    )
+                except Exception:
+                    continue
+            procs.sort(key=lambda x: x[1], reverse=True)
+            self._cpu_proc_top = procs[:5]
             time.sleep(1.0)
 
     def _async_query_mem_freq(self):
@@ -585,14 +609,9 @@ class MonitorWindow(QWidget):
                     else:
                         self.core_rows[i].set_value(v)
 
-        parts = []
-        t, p = self.cpu_sensors.temp, self.cpu_sensors.power
-        src = getattr(self.cpu_sensors, "temp_source", None)
-        if t is not None:
-            tag = f" ({src})" if src else ""
-            parts.append(f"温度 {t:.0f}°C{tag}")
-        else:
-            parts.append("温度 N/A")
+        proc_count = len(psutil.pids())
+        p = self.cpu_sensors.power
+        parts = [f"进程 {proc_count}"]
         parts.append(f"功耗 {p:.0f} W" if p is not None else "功耗 N/A")
         rf = self.cpu_sensors.freq
         if rf:
@@ -690,6 +709,17 @@ class MonitorWindow(QWidget):
             text = label.fontMetrics().elidedText(
                 text, Qt.TextElideMode.ElideRight, avail
             )
+
+        cp_items = [f"{n} {v:.0f}%" for n, v in self._cpu_proc_top]
+        cp_text = "  ".join(cp_items)
+        cp_label = self.cpu_proc_label
+        cp_avail = cp_label.width() - 4
+        if cp_text and cp_avail > 20:
+            cp_text = cp_label.fontMetrics().elidedText(
+                cp_text, Qt.TextElideMode.ElideRight, cp_avail
+            )
+        if cp_label.text() != cp_text:
+            cp_label.setText(cp_text or "")
         label.setText(text)
 
     def refresh_net(self):

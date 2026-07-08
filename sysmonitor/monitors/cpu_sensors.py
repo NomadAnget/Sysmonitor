@@ -133,18 +133,8 @@ class CpuSensors:
                     except Exception:
                         pass
 
-            t = self._get_perf_temp()
-            if t is not None:
-                self.temp = t
-                self.temp_source = "Perf"
-            else:
-                t = self._get_acpi_temp()
-                if t is not None:
-                    self.temp = t
-                    self.temp_source = "ACPI"
-                else:
-                    self.temp = None
-                    self.temp_source = None
+            self.temp = None
+            self.temp_source = None
 
             time.sleep(1)
 
