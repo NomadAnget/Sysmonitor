@@ -19,7 +19,6 @@ monitor_backup_*.py
 mica_test.py
 
 # 临时排除
-main.py
 *.exe
 *.png
 !docs/*.png
