@@ -1,7 +1,8 @@
 import ctypes
 import os
+import random
 import sys
-import re
+import threading
 import time
 import math
 
@@ -178,6 +179,9 @@ class GpuBackend:
                 pm = GpuProcMem()
                 self._procmem = pm if pm.ok else None
                 self._luid_to_index = self._build_luid_map()
+            self._bg_data = self._poll_nvml()
+            self._bg_mem = self._poll_mem_nvml()
+            threading.Thread(target=self._bg_poll_loop, daemon=True).start()
             return
 
         if sys.platform.startswith("win") and self._has_amd_gpu():
@@ -396,11 +400,18 @@ class GpuBackend:
             self._static.append({"name": names[i], "mem_total": totals[i]})
             self._sim_seeds.append(i)
 
+    # ── Background poll thread ─────────────────────────────
+    def _bg_poll_loop(self):
+        while True:
+            self._bg_data = self._poll_nvml()
+            self._bg_mem = self._poll_mem_nvml()
+            time.sleep(0.3)
+
     # ── poll / poll_mem dispatchers ─────────────────────────
 
     def poll(self):
         if self.kind == "nvml":
-            return self._poll_nvml()
+            return getattr(self, "_bg_data", [])
         elif self.kind == "amd":
             return self._poll_lhm()
         elif self.kind == "sim":
@@ -411,7 +422,7 @@ class GpuBackend:
 
     def poll_mem(self):
         if self.kind == "nvml":
-            return self._poll_mem_nvml()
+            return getattr(self, "_bg_mem", [])
         elif self.kind == "amd":
             return self._poll_mem_lhm()
         elif self.kind == "sim":
