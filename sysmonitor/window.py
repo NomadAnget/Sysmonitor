@@ -341,12 +341,7 @@ class MonitorWindow(QWidget):
         if hasattr(self, "timer") and self.timer.isActive():
             self.timer.stop()
         self.close()
-        try:
-            import pynvml
-
-            pynvml.nvmlShutdown()
-        except Exception:
-            pass
+        self.gpu.shutdown()
         os._exit(0)
 
     def _build_sysinfo(self):
