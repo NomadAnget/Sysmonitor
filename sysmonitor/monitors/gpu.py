@@ -209,6 +209,9 @@ class GpuBackend:
             import nvidia_ml_py as pynvml
         except ImportError:
             try:
+                import warnings as _w
+
+                _w.filterwarnings("ignore", message=".*pynvml.*deprecated.*")
                 import pynvml
             except ImportError:
                 return
