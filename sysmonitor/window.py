@@ -31,7 +31,7 @@ from PyQt6.QtNetwork import QLocalServer
 
 from .config import ThemeConfig, THEME_ORDER, THEME_LABELS, resolve_colors
 from .utils import res_path, fmt_bytes, cpu_name
-from .widgets import MeterRow, Sparkline
+from .widgets import MeterRow, Sparkline, CoreGrid
 from .monitors import GpuBackend, NetworkETW, CpuSensors
 from .single_instance import IPC_NAME
 
@@ -389,17 +389,23 @@ class MonitorWindow(QWidget):
         self.cpu_spark = Sparkline()
         lay.addWidget(self.cpu_spark)
 
-        self.core_rows = []
+        self._compact_mode = False
         n = psutil.cpu_count(logical=True) or 1
-        grid = QGridLayout()
-        grid.setSpacing(6)
-        cols = 4
-        for i in range(n):
-            row = MeterRow(f"核{i}")
-            row.label.setMinimumWidth(34)
-            self.core_rows.append(row)
-            grid.addWidget(row, i // cols, i % cols)
-        lay.addLayout(grid)
+        if n > 32:
+            self._compact_mode = True
+            self.core_grid = CoreGrid(n)
+            lay.addWidget(self.core_grid)
+        else:
+            self.core_rows = []
+            grid = QGridLayout()
+            grid.setSpacing(6)
+            cols = 4
+            for i in range(n):
+                row = MeterRow(f"核{i}")
+                row.label.setMinimumWidth(34)
+                self.core_rows.append(row)
+                grid.addWidget(row, i // cols, i % cols)
+            lay.addLayout(grid)
 
         self.cpu_extra = QLabel("")
         self.cpu_extra.setProperty("kind", "sub")
@@ -560,13 +566,16 @@ class MonitorWindow(QWidget):
         self.cpu_total.set_value(total)
         self.cpu_spark.push(total)
         core_freqs = self.cpu_sensors.per_core_freqs
-        for i, v in enumerate(per):
-            if i < len(self.core_rows):
-                f = core_freqs[i] if i < len(core_freqs) and core_freqs[i] else None
-                if f:
-                    self.core_rows[i].set_value(v, f"{v:.0f}%  {f:.0f}MHz")
-                else:
-                    self.core_rows[i].set_value(v)
+        if self._compact_mode:
+            self.core_grid.update_data(per, core_freqs)
+        else:
+            for i, v in enumerate(per):
+                if i < len(self.core_rows):
+                    f = core_freqs[i] if i < len(core_freqs) and core_freqs[i] else None
+                    if f:
+                        self.core_rows[i].set_value(v, f"{v:.0f}%  {f:.0f}MHz")
+                    else:
+                        self.core_rows[i].set_value(v)
 
         parts = []
         t, p = self.cpu_sensors.temp, self.cpu_sensors.power

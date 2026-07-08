@@ -109,3 +109,62 @@ class Sparkline(QWidget):
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
                 f"{self._data[-1]:.0f}%",
             )
+
+
+class CoreGrid(QWidget):
+    GAP = 2
+    PAD = 2
+    TARGET = 14
+
+    def __init__(self, core_count):
+        super().__init__()
+        self._values = [0] * core_count
+        self._cols = 1
+        self._block = 10
+        self.setMinimumHeight(30)
+
+    def update_data(self, values, freqs):
+        self._values = values
+        self._layout_blocks()
+        self.update()
+
+    def _layout_blocks(self):
+        w = self.width()
+        n = len(self._values)
+        if w < 10 or n == 0:
+            return
+        avail = w - self.PAD * 2
+        max_cols = max(4, int((avail + self.GAP) / (self.TARGET + self.GAP)))
+        best = (n, max_cols)  # (empty_in_last_row, cols)
+        for cols in range(max_cols, 3, -1):
+            empty = (cols - n % cols) % cols
+            if empty < best[0]:
+                best = (empty, cols)
+                if empty == 0:
+                    break
+        cols = best[1]
+        rows = (n + cols - 1) // cols
+        block = (avail - (cols - 1) * self.GAP) / cols
+        self._cols = cols
+        self._block = block
+        h = rows * (block + self.GAP) + self.PAD * 2
+        if int(h) != self.height():
+            self.setFixedHeight(int(h))
+
+    def resizeEvent(self, event):
+        self._layout_blocks()
+        super().resizeEvent(event)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        n = len(self._values)
+        cols = self._cols
+        bs = self._block
+        for i in range(n):
+            row = i // cols
+            col = i % cols
+            x = self.PAD + col * (bs + self.GAP)
+            y = self.PAD + row * (bs + self.GAP)
+            c = QColor(level_color(self._values[i]))
+            p.fillRect(int(x), int(y), int(bs), int(bs), c)
