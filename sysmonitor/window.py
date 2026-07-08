@@ -419,7 +419,6 @@ class MonitorWindow(QWidget):
         cpu_lay = QHBoxLayout(cpu_row)
         cpu_lay.setContentsMargins(0, 0, 0, 0)
         self.cpu_extra = QLabel("")
-        self.cpu_extra.setProperty("kind", "sub")
         cpu_lay.addWidget(self.cpu_extra)
         sep = QLabel("│")
         sep.setProperty("kind", "sep")
