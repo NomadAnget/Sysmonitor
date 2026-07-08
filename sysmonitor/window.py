@@ -419,17 +419,6 @@ class MonitorWindow(QWidget):
         self.cpu_extra.setProperty("kind", "sub")
         lay.addWidget(self.cpu_extra)
 
-        cpu_proc_row = QWidget()
-        cpu_proc_lay = QHBoxLayout(cpu_proc_row)
-        cpu_proc_lay.setContentsMargins(0, 0, 0, 0)
-        self.cpu_proc_label = QLabel("")
-        self.cpu_proc_label.setProperty("kind", "sub")
-        self.cpu_proc_label.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-        )
-        cpu_proc_lay.addWidget(self.cpu_proc_label, 1)
-        lay.addWidget(cpu_proc_row)
-
         self._cpu_proc_top = []
         threading.Thread(target=self._cpu_proc_worker, daemon=True).start()
         return box
@@ -628,7 +617,18 @@ class MonitorWindow(QWidget):
                     parts.append(f"频率 {freq.current:.0f} MHz")
             except Exception:
                 pass
+        cp_items = [f"{n} {v:.0f}%" for n, v in self._cpu_proc_top]
+        if cp_items:
+            parts.append("│")
+            parts.append("  ".join(cp_items))
         self.cpu_extra.setText("    ".join(parts))
+        avail = self.cpu_extra.width() - 4
+        text = self.cpu_extra.text()
+        if text and avail > 20:
+            text = self.cpu_extra.fontMetrics().elidedText(
+                text, Qt.TextElideMode.ElideRight, avail
+            )
+            self.cpu_extra.setText(text)
 
         for idx, (w, data) in enumerate(zip(self.gpu_widgets, self.gpu.poll())):
             gu = data.get("gpu_util")
@@ -715,10 +715,6 @@ class MonitorWindow(QWidget):
                 text, Qt.TextElideMode.ElideRight, avail
             )
 
-        cp_items = [f"{n} {v:.0f}%" for n, v in self._cpu_proc_top]
-        cp_text = "  ".join(cp_items)
-        if self.cpu_proc_label.text() != cp_text:
-            self.cpu_proc_label.setText(cp_text or "")
         label.setText(text)
 
     def refresh_net(self):
