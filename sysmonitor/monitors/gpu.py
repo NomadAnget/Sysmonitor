@@ -181,6 +181,7 @@ class GpuBackend:
                 self._procmem = pm if pm.ok else None
                 self._luid_to_index = self._build_luid_map()
             self._bg_lock = threading.Lock()
+            self._bg_interval = 1.0
             self._bg_data = self._poll_nvml()
             self._bg_mem = self._poll_mem_nvml()
             threading.Thread(target=self._bg_poll_loop, daemon=True).start()
@@ -408,7 +409,10 @@ class GpuBackend:
             with self._bg_lock:
                 self._bg_data = self._poll_nvml()
                 self._bg_mem = self._poll_mem_nvml()
-            time.sleep(1.0)
+            time.sleep(self._bg_interval)
+
+    def set_interval(self, ms):
+        self._bg_interval = max(ms / 1000.0, 0.1)
 
     # ── poll / poll_mem dispatchers ─────────────────────────
 

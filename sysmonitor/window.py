@@ -93,7 +93,9 @@ class MonitorWindow(QWidget):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh_main)
-        self.timer.start(self.freq_combo.currentData())
+        interval = self.freq_combo.currentData()
+        self.timer.start(interval)
+        self.gpu.set_interval(interval)
         self.mem_timer = QTimer(self)
         self.mem_timer.timeout.connect(self.refresh_mem)
         self.mem_timer.start(100)
@@ -280,6 +282,7 @@ class MonitorWindow(QWidget):
         ms = self.freq_combo.currentData()
         if ms and hasattr(self, "timer"):
             self.timer.setInterval(ms)
+            self.gpu.set_interval(ms)
 
     def _toggle_on_top(self, _checked=False):
         self._on_top = not self._on_top
