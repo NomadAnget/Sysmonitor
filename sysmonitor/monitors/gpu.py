@@ -3,6 +3,7 @@ import os
 import sys
 import re
 import time
+import math
 
 import psutil
 
@@ -99,6 +100,37 @@ class GpuProcMem:
             pass
 
 
+_DEFAULT_VRAM = {
+    "rx 7900 xtx": 24,
+    "rx 7900 xt": 20,
+    "rx 7800 xt": 16,
+    "rx 7700 xt": 12,
+    "rx 7600 xt": 16,
+    "rx 7600": 8,
+    "rx 6900 xt": 16,
+    "rx 6800 xt": 16,
+    "rx 6800": 16,
+    "rx 6700 xt": 12,
+    "rx 6600 xt": 8,
+    "rx 6600": 8,
+    "rx 6500 xt": 4,
+    "rx 6400": 4,
+    "pro w7900": 48,
+    "pro w7800": 32,
+    "pro w7600": 8,
+    "vega": 8,
+    "radeon vii": 16,
+}
+
+
+def _guess_vram(name):
+    lower = name.lower()
+    for key, gb in _DEFAULT_VRAM.items():
+        if key in lower:
+            return gb * 1024**3
+    return 8 * 1024**3
+
+
 class GpuBackend:
     def __init__(self):
         self.kind = "none"
@@ -111,11 +143,59 @@ class GpuBackend:
         self._proc_ts = 0.0
         self._name_cache = {}
         self._luid_to_index = {}
+
+        self._lhm_comp = None
+        self._lhm_hw_types = None
+        self._lhm_sensor_types = None
+        self._lhm_hardware = []
+
+        self._debug = os.environ.get("SYS_GPU_DEBUG") == "1"
+        self._simulate = os.environ.get("SYS_AMD_SIMULATE") == "1"
+        self._sim_seeds = []
+
+        self._init()
+
+    # ── logging ──────────────────────────────────────────────
+
+    def _log(self, msg):
+        if self._debug:
+            print(f"[GPUBackend] {msg}", file=sys.stderr)
+
+    # ── backend detection chain ──────────────────────────────
+
+    def _init(self):
+        if self._simulate:
+            self._init_simulate()
+            self.kind = "sim"
+            self._log(f"Simulation backend: {self.count} GPU(s)")
+            return
+
         self._init_nvml()
-        if self.kind == "nvml" and sys.platform.startswith("win"):
-            pm = GpuProcMem()
-            self._procmem = pm if pm.ok else None
-            self._luid_to_index = self._build_luid_map()
+        if self._handles:
+            self.kind = "nvml"
+            self._log(f"NVML backend: {self.count} GPU(s)")
+            if sys.platform.startswith("win"):
+                pm = GpuProcMem()
+                self._procmem = pm if pm.ok else None
+                self._luid_to_index = self._build_luid_map()
+            return
+
+        if sys.platform.startswith("win") and self._has_amd_gpu():
+            self._init_lhm_amd()
+            if self._lhm_hardware:
+                self.kind = "amd"
+                self._log(f"AMD (LHM) backend: {self.count} GPU(s)")
+                if sys.platform.startswith("win"):
+                    pm = GpuProcMem()
+                    self._procmem = pm if pm.ok else None
+                return
+
+        self._init_wmi_fallback()
+        if self._static:
+            self.kind = "wmi"
+            self._log(f"WMI fallback backend: {self.count} GPU(s)")
+
+    # ── NVML (NVIDIA) ───────────────────────────────────────
 
     def _init_nvml(self):
         try:
@@ -160,12 +240,189 @@ class GpuBackend:
 
     @property
     def count(self):
-        return len(self._handles)
+        if self.kind == "nvml":
+            return len(self._handles)
+        elif self.kind == "amd":
+            return len(self._lhm_hardware)
+        elif self.kind == "sim":
+            return len(self._sim_seeds)
+        elif self.kind == "wmi":
+            return len(self._static)
+        return 0
 
     def static_info(self):
         return self._static
 
+    # ── fast AMD probe via WMI (avoid pythonnet if no AMD card) ─
+
+    @staticmethod
+    def _has_amd_gpu():
+        try:
+            import win32com.client
+
+            wmi = win32com.client.GetObject(
+                "winmgmts:{impersonationLevel=impersonate}!//./root/cimv2"
+            )
+            for gpu in wmi.ExecQuery(
+                "SELECT * FROM Win32_VideoController "
+                "WHERE AdapterCompatibility LIKE '%AMD%' "
+                "OR AdapterCompatibility LIKE '%ATI%' "
+                "OR Name LIKE '%Radeon%' "
+                "OR Name LIKE '%AMD%'"
+            ):
+                return True
+        except Exception:
+            pass
+        return False
+
+    # ── AMD via LHM ─────────────────────────────────────────
+
+    def _find_libs(self):
+        from ..utils import res_path
+
+        libs = res_path("libs")
+        if not os.path.exists(os.path.join(libs, "LibreHardwareMonitorLib.dll")):
+            for cand in (
+                os.path.join(os.path.dirname(sys.executable), "libs"),
+                os.path.join(os.getcwd(), "libs"),
+            ):
+                if os.path.exists(os.path.join(cand, "LibreHardwareMonitorLib.dll")):
+                    libs = cand
+                    break
+        return libs
+
+    def _init_lhm_amd(self):
+        try:
+            from pythonnet import load
+
+            load("netfx")
+            import clr
+        except Exception as e:
+            self._log(f"pythonnet import failed: {e}")
+            return
+
+        try:
+            libs = self._find_libs()
+            if libs not in sys.path:
+                sys.path.append(libs)
+            os.environ["PATH"] = libs + os.pathsep + os.environ.get("PATH", "")
+            clr.AddReference("LibreHardwareMonitorLib")
+            from LibreHardwareMonitor.Hardware import (
+                Computer,
+                HardwareType,
+                SensorType,
+            )
+        except Exception as e:
+            self._log(f"LHM assembly load failed: {e}")
+            return
+
+        try:
+            comp = Computer()
+            comp.IsGpuEnabled = True
+            comp.Open()
+        except Exception as e:
+            self._log(f"LHM Computer.Open() failed: {e}")
+            return
+
+        amd_gpus = []
+        for hw in comp.Hardware:
+            if hw.HardwareType == HardwareType.GpuAmd:
+                hw.Update()
+                name = hw.Name.strip()
+                mem_total = None
+                for s in hw.Sensors:
+                    if (
+                        s.SensorType == SensorType.SmallData
+                        and s.Value is not None
+                        and "memory total" in s.Name.lower()
+                    ):
+                        try:
+                            v = float(s.Value)
+                            mem_total = int(v * 1024 * 1024) if v < 1e6 else int(v)
+                        except Exception:
+                            pass
+                if mem_total is None:
+                    mem_total = _guess_vram(name)
+                self._static.append({"name": name, "mem_total": mem_total})
+                amd_gpus.append(hw)
+                self._log(f"AMD GPU: {name}, VRAM: {fmt_bytes_short(mem_total)}")
+
+        if amd_gpus:
+            self._lhm_comp = comp
+            self._lhm_hw_types = HardwareType
+            self._lhm_sensor_types = SensorType
+            self._lhm_hardware = amd_gpus
+        else:
+            try:
+                comp.Close()
+            except Exception:
+                pass
+
+    # ── WMI fallback (any GPU, basic info only) ─────────────
+
+    def _init_wmi_fallback(self):
+        try:
+            import win32com.client
+
+            wmi = win32com.client.GetObject(
+                "winmgmts:{impersonationLevel=impersonate}!//./root/cimv2"
+            )
+            for gpu in wmi.ExecQuery("SELECT * FROM Win32_VideoController"):
+                gpu_name = str(gpu.Name or "")
+                if not gpu_name:
+                    continue
+                vram = gpu.AdapterRAM
+                vram = int(vram) if vram else 0
+                self._static.append(
+                    {
+                        "name": gpu_name,
+                        "mem_total": vram if vram > 0 else None,
+                    }
+                )
+            if self._static:
+                self._log(f"WMI fallback: {len(self._static)} GPU(s)")
+        except Exception:
+            pass
+
+    # ── Simulation mode ─────────────────────────────────────
+
+    def _init_simulate(self):
+        names = [
+            "AMD Radeon RX 7900 XTX (Simulated)",
+            "AMD Radeon RX 7800 XT (Simulated)",
+        ]
+        totals = [24 * 1024**3, 16 * 1024**3]
+        for i in range(2):
+            self._static.append({"name": names[i], "mem_total": totals[i]})
+            self._sim_seeds.append(i)
+
+    # ── poll / poll_mem dispatchers ─────────────────────────
+
     def poll(self):
+        if self.kind == "nvml":
+            return self._poll_nvml()
+        elif self.kind == "amd":
+            return self._poll_lhm()
+        elif self.kind == "sim":
+            return self._poll_sim()
+        elif self.kind == "wmi":
+            return self._poll_wmi()
+        return []
+
+    def poll_mem(self):
+        if self.kind == "nvml":
+            return self._poll_mem_nvml()
+        elif self.kind == "amd":
+            return self._poll_mem_lhm()
+        elif self.kind == "sim":
+            return self._poll_mem_sim()
+        elif self.kind == "wmi":
+            return self._poll_mem_wmi()
+        return []
+
+    # ── NVML poll ──────────────────────────────────────────
+
+    def _poll_nvml(self):
         if self.kind != "nvml":
             return []
         self._refresh_procs()
@@ -231,7 +488,7 @@ class GpuBackend:
             result.append(info)
         return result
 
-    def poll_mem(self):
+    def _poll_mem_nvml(self):
         if self.kind != "nvml":
             return []
         out = []
@@ -243,6 +500,201 @@ class GpuBackend:
             except Exception:
                 out.append((None, None))
         return out
+
+    # ── LHM (AMD) poll ──────────────────────────────────────
+
+    def _poll_lhm(self):
+        if self.kind != "amd":
+            return []
+        result = []
+        st = self._lhm_sensor_types
+        for idx, hw in enumerate(self._lhm_hardware):
+            try:
+                hw.Update()
+            except Exception:
+                pass
+
+            info = {
+                "name": (
+                    self._static[idx]["name"] if idx < len(self._static) else "AMD GPU"
+                ),
+                "gpu_util": None,
+                "mem_used": None,
+                "mem_total": (
+                    self._static[idx].get("mem_total")
+                    if idx < len(self._static)
+                    else None
+                ),
+                "temp": None,
+                "power": None,
+                "clock": None,
+                "enc_util": None,
+                "dec_util": None,
+                "enc_sessions": None,
+                "pcie_width": None,
+                "pcie_gen": None,
+                "max_pcie_width": None,
+                "max_pcie_gen": None,
+                "procs": [],
+            }
+
+            for s in hw.Sensors:
+                if s.Value is None:
+                    continue
+                try:
+                    val = float(s.Value)
+                except Exception:
+                    continue
+                nl = s.Name.lower()
+
+                if s.SensorType == st.Load:
+                    if "gpu" in nl and "memory" not in nl:
+                        if "core" in nl or info["gpu_util"] is None:
+                            info["gpu_util"] = val
+
+                elif s.SensorType == st.Temperature:
+                    if "gpu" in nl and info["temp"] is None:
+                        info["temp"] = val
+                    elif info["temp"] is None and "hotspot" in nl:
+                        info["temp"] = val
+
+                elif s.SensorType == st.Clock:
+                    if "gpu" in nl and "memory" not in nl:
+                        if info["clock"] is None:
+                            info["clock"] = int(val)
+
+                elif s.SensorType == st.Power:
+                    if "gpu" in nl or "package" in nl:
+                        if info["power"] is None:
+                            info["power"] = val
+
+                elif s.SensorType == st.SmallData:
+                    if "memory used" in nl:
+                        info["mem_used"] = (
+                            int(val * 1024 * 1024) if val < 1e6 else int(val)
+                        )
+                    elif "memory total" in nl and info["mem_total"] is None:
+                        info["mem_total"] = (
+                            int(val * 1024 * 1024) if val < 1e6 else int(val)
+                        )
+
+            result.append(info)
+        return result
+
+    def _poll_mem_lhm(self):
+        if self.kind != "amd":
+            return []
+        out = []
+        st = self._lhm_sensor_types
+        for idx, hw in enumerate(self._lhm_hardware):
+            try:
+                hw.Update()
+            except Exception:
+                pass
+            used = None
+            total = (
+                self._static[idx].get("mem_total") if idx < len(self._static) else None
+            )
+            for s in hw.Sensors:
+                if s.SensorType == st.SmallData and s.Value is not None:
+                    nl = s.Name.lower()
+                    try:
+                        v = float(s.Value)
+                    except Exception:
+                        continue
+                    if "memory used" in nl:
+                        used = int(v * 1024 * 1024) if v < 1e6 else int(v)
+                    elif "memory total" in nl and total is None:
+                        total = int(v * 1024 * 1024) if v < 1e6 else int(v)
+            out.append((used, total))
+        return out
+
+    # ── Simulation poll ─────────────────────────────────────
+
+    def _poll_sim(self):
+        t = time.monotonic()
+        result = []
+        for i, seed in enumerate(self._sim_seeds):
+            phase = t * 0.1 + seed * 2.0
+            util = 35 + 45 * (0.5 + 0.5 * math.sin(phase * 0.7))
+            mt = (
+                self._static[i].get("mem_total") or (24 * 1024**3)
+                if i < len(self._static)
+                else 24 * 1024**3
+            )
+            mem_ratio = 0.25 + 0.55 * abs(math.cos(phase * 0.3))
+
+            result.append(
+                {
+                    "name": (
+                        self._static[i]["name"] if i < len(self._static) else "AMD GPU"
+                    ),
+                    "gpu_util": min(99.0, util),
+                    "mem_used": int(mt * mem_ratio),
+                    "mem_total": mt,
+                    "temp": 45 + 30 * abs(math.sin(phase * 0.5)),
+                    "power": 30 + 300 * (util / 100.0),
+                    "clock": int(800 + 1700 * (util / 100.0)),
+                    "enc_util": None,
+                    "dec_util": None,
+                    "enc_sessions": None,
+                    "pcie_width": 16,
+                    "pcie_gen": 4,
+                    "max_pcie_width": 16,
+                    "max_pcie_gen": 4,
+                    "procs": [
+                        {
+                            "pid": 1234,
+                            "name": "sim_proc.exe",
+                            "mem": int(512 * 1024 * 1024),
+                        }
+                    ],
+                }
+            )
+        return result
+
+    def _poll_mem_sim(self):
+        t = time.monotonic()
+        out = []
+        for i, seed in enumerate(self._sim_seeds):
+            mt = (
+                self._static[i].get("mem_total") or (24 * 1024**3)
+                if i < len(self._static)
+                else 24 * 1024**3
+            )
+            phase = t * 0.1 + seed * 2.0
+            used = int(mt * (0.25 + 0.55 * abs(math.cos(phase * 0.3))))
+            out.append((used, mt))
+        return out
+
+    # ── WMI fallback poll (basic, no real-time sensors) ────
+
+    def _poll_wmi(self):
+        return [
+            {
+                "name": s["name"],
+                "gpu_util": None,
+                "mem_used": None,
+                "mem_total": s.get("mem_total"),
+                "temp": None,
+                "power": None,
+                "clock": None,
+                "enc_util": None,
+                "dec_util": None,
+                "enc_sessions": None,
+                "pcie_width": None,
+                "pcie_gen": None,
+                "max_pcie_width": None,
+                "max_pcie_gen": None,
+                "procs": [],
+            }
+            for s in self._static
+        ]
+
+    def _poll_mem_wmi(self):
+        return [(None, s.get("mem_total")) for s in self._static]
+
+    # ── per-process GPU memory (shared by nvml/amd) ────────
 
     def _proc_name(self, pid):
         name = self._name_cache.get(pid)
@@ -300,6 +752,8 @@ class GpuBackend:
         all_luids, mem_map = self._procmem.sample()
         mapping = self._luid_to_index
         if not mapping:
+            if not self._busids or self.count == 0:
+                return
             luids = sorted(all_luids)
             order = sorted(range(self.count), key=lambda i: self._busids[i])
             mapping = {lu: order[k] for k, lu in enumerate(luids) if k < self.count}
@@ -342,6 +796,8 @@ class GpuBackend:
         procs.sort(key=lambda x: x["mem"] or 0, reverse=True)
         return procs
 
+    # ── cleanup ─────────────────────────────────────────────
+
     def shutdown(self):
         if self._procmem is not None:
             self._procmem.close()
@@ -350,3 +806,19 @@ class GpuBackend:
                 self._nvml.nvmlShutdown()
             except Exception:
                 pass
+        if self._lhm_comp is not None:
+            try:
+                self._lhm_comp.Close()
+            except Exception:
+                pass
+
+
+# helper — avoid circular import with utils.py
+def fmt_bytes_short(n):
+    if n is None:
+        return "N/A"
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"

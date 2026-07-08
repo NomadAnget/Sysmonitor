@@ -1,0 +1,63 @@
+; SafeRing0 - WinRing0-Compatible DLL Export Definitions
+; (c) 2025 ziX Performance Labs
+;
+; Export names match WinRing0 for drop-in compatibility.
+; Some applications link by ordinal, so we preserve those too.
+
+LIBRARY WinRing0x64
+EXPORTS
+    ; Initialization
+    InitializeOls           @1
+    DeinitializeOls         @2
+
+    ; Status/Version
+    GetDllStatus            @3
+    GetDllVersion           @4
+    GetDriverVersion        @5
+
+    ; MSR Functions
+    Rdmsr                   @6
+    RdmsrEx                 @7
+    Wrmsr                   @8
+    WrmsrEx                 @9
+    Rdpmc                   @10
+    RdpmcEx                 @11
+
+    ; I/O Port Functions
+    ReadIoPortByte          @12
+    ReadIoPortWord          @13
+    ReadIoPortDword         @14
+    WriteIoPortByte         @15
+    WriteIoPortWord         @16
+    WriteIoPortDword        @17
+
+    ; Physical Memory Functions
+    ReadMemory              @18
+    WriteMemory             @19
+
+    ; PCI Configuration Functions
+    SetPciMaxBusIndex       @20
+    ReadPciConfigByte       @21
+    ReadPciConfigWord       @22
+    ReadPciConfigDword      @23
+    ReadPciConfigDwordEx    @24
+    WritePciConfigByte      @25
+    WritePciConfigWord      @26
+    WritePciConfigDword     @27
+    WritePciConfigDwordEx   @28
+
+    ; CPUID Functions (local execution)
+    Cpuid                   @29
+    CpuidEx                 @30
+
+    ; TSC Functions (local execution)
+    Rdtsc                   @31
+    RdtscEx                 @32
+
+    ; HLT Functions (blocked for security)
+    Hlt                     @33
+    HltEx                   @34
+
+    ; DMI/SMBIOS Functions
+    ReadDmiMemory               @35
+    FindDmiTablePhysicalAddress @36

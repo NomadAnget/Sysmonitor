@@ -2,12 +2,13 @@
 
 ## Overview
 
-SysMonitor is a Windows desktop system monitoring tool built as a **PyQt6 package** (`sysmonitor/`). It provides real-time monitoring of CPU, memory, network, and multi-GPU NVIDIA cards with per-process GPU memory and network traffic.
+SysMonitor is a Windows desktop system monitoring tool built as a **PyQt6 package** (`sysmonitor/`). It provides real-time monitoring of CPU, memory, network, and multi-GPU NVIDIA cards with per-process GPU memory and network traffic. **AMD GPU** support via LibreHardwareMonitorLib (pythonnet).
 
 - **Language**: Python 3.13+
 - **GUI**: PyQt6, single-threaded with background threads for slow operations
 - **Build**: Nuitka (single-file exe via `build.ps1`), also PyInstaller-compatible (`SysMonitor.spec`)
 - **Dependencies**: `psutil`, `nvidia-ml-py`, `PyQt6`, `pythonnet`, `pywin32`, `pywintrace`
+- **GPU Backends**: NVML (NVIDIA) → LHM (AMD) → WMI fallback (any), plus `SYS_AMD_SIMULATE=1` simulation mode
 - **CI/CD**: Forgejo Actions + GitHub Actions (tag-triggered release)
 
 ## Architecture
@@ -44,16 +45,38 @@ Run with: `python -m sysmonitor` or `python main.py`.
 
 ### GpuBackend (`sysmonitor/monitors/gpu.py`)
 
-Multi-GPU monitoring via NVML (`nvidia-ml-py`/`pynvml`). Gracefully degrades when no GPU or no NVML.
+Multi-GPU monitoring with three backends in priority order:
 
-**Static data**: name, total VRAM per GPU (from NVML)
-**Poll data** (per GPU): gpu_util%, mem_used/total, temp°C, power W, clock MHz, enc/dec util%, PCIe width/gen, per-process GPU memory
+| Priority | Backend | Source | Supports |
+|----------|---------|--------|----------|
+| 1 | NVML | `nvidia-ml-py` / `pynvml` | NVIDIA GPUs (full data) |
+| 2 | LHM AMD | `LibreHardwareMonitorLib` via pythonnet | AMD GPUs (util, temp, power, clock, mem) |
+| 3 | WMI fallback | `Win32_VideoController` (pywin32) | Any GPU (name + VRAM only, no real-time) |
+| — | Simulation | `SYS_AMD_SIMULATE=1` env var | 2 simulated AMD GPUs for UI testing |
 
-**Per-process GPU memory** — two paths:
-- **Windows** (`GpuProcMem`): Uses PDH counter `\GPU Process Memory(*)\Dedicated Usage` with raw `PdhGetFormattedCounterArrayW` (to handle duplicate instance names for multi-allocation processes). Maps GPU via CUDA luid → PCI busId → NVML index.
-- **Linux/non-Windows fallback**: `nvmlDeviceGetComputeRunningProcesses` + `nvmlDeviceGetGraphicsRunningProcesses`
+Detection chain: **NVML → WMI probe *(has AMD?)* → LHM → WMI fallback → Simulation**
 
-Key detail: LUID to NVML index mapping uses CUDA Driver API (`nvcuda.dll`) via ctypes to call `cuDeviceGetLuid` + `cuDeviceGetPCIBusId`, matching against NVML bus IDs. Falls back to sorted LUID ↔ sorted busId if CUDA unavailable.
+**NVML** (existing): Full NVML data — gpu_util%, mem_used/total, temp°C, power W, clock MHz, enc/dec util%, PCIe width/gen, per-process GPU memory.
+
+**LHM AMD**: Reads AMD GPU sensors from LibreHardwareMonitor via .NET:
+- `SensorType.Load` → GPU core utilization (%)
+- `SensorType.Temperature` → GPU temperature (°C)
+- `SensorType.Clock` → GPU core clock (MHz)
+- `SensorType.Power` → GPU power draw (W)
+- `SensorType.SmallData` → VRAM used/total (MB → bytes)
+- Non-admin users may not get temperature/power (varies by system)
+
+**WMI fallback**: Last resort — returns only `name` and `mem_total` from `Win32_VideoController`. No real-time data.
+
+**Simulation** (`SYS_AMD_SIMULATE=1`): Generates 2 fake AMD GPUs (RX 7900 XTX, RX 7800 XT) with sine-wave data for UI testing. Title bar shows "(仿真模式)".
+
+**Per-process GPU memory** (`GpuProcMem`): Uses PDH counter `\GPU Process Memory(*)\Dedicated Usage` via raw `PdhGetFormattedCounterArrayW`. Works for any WDDM GPU (NVIDIA + AMD). LUID → GPU index mapping:
+- NVIDIA: CUDA `cuDeviceGetLuid` + `cuDeviceGetPCIBusId` → NVML bus ID
+- AMD/fallback: sorted LUID order (no per-GPU mapping, limited to single-GPU systems)
+
+**Vendor detection**: `_has_amd_gpu()` WMI query checks `AdapterCompatibility` and `Name` for AMD/ATI/Radeon patterns before loading LHM (avoids pythonnet overhead on non-AMD systems).
+
+**GPU VRAM fallback**: If LHM doesn't report `Memory Total`, `_guess_vram()` matches GPU name against known AMD models (7900 XTX → 24 GB, 7800 XT → 16 GB, etc.).
 
 ### NetworkETW (`sysmonitor/monitors/network.py`)
 
@@ -69,7 +92,7 @@ Background daemon thread that polls three metrics every 1s:
 | Power (W) | `\Energy Meter(*_PKG)\Power` PDH counter | None (built-in EMI) |
 | Real-time freq (MHz) | `% Processor Performance` × base MHz | None |
 
-Temperature uses WMI in `root/cimv2` namespace. Temperature is reported in **Kelvin**, converted to Celsius (301K ≈ 27.85°C). Falls back to LibreHardwareMonitor via pythonnet if WMI unavailable.
+Temperature uses **LHM** (LibreHardwareMonitor) first regardless of admin status — reads CPU DTS directly. Falls back to WMI `Win32_PerfFormattedData_Counters_ThermalZoneInformation` (ACPI motherboard zone, in Kelvin) if LHM unavailable.
 
 ### MonitorWindow (`sysmonitor/window.py`)
 
@@ -172,11 +195,13 @@ Resources resolved by `res_path()`:
 
 | Data | Source | Constraint |
 |------|--------|------------|
-| CPU temp | WMI ThermalZoneInfo | Most Windows 10/11 systems; Kelvin→Celsius |
+| CPU temp | WMI ThermalZoneInfo | Most Windows 10/11 systems; Kelvin→Celsius (LHM gives DTS directly) |
 | CPU power | EMI Energy Meter | Always available on modern Windows |
 | Per-process GPU mem | GPU Process Memory counter | Windows only; WDDM mode |
 | Per-process net | PDH IO counters | Simplified; not true ETW |
-| GPU metrics | NVML | NVIDIA only; degrades gracefully |
+| GPU metrics (NVIDIA) | NVML | NVIDIA only; falls back to AMD/WMI |
+| GPU metrics (AMD) | LHM / LibreHardwareMonitor | pythonnet + .NET; admin rights may be needed |
+| VRAM fallback | `_guess_vram()` | Name-based lookup for known AMD models |
 | Mica | DWM API | Windows 11 only; transparent background required |
 | WSL2 net | — | Traffic counted to host `vmwp.exe` |
 

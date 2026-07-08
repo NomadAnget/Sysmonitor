@@ -1,6 +1,5 @@
 import ctypes
 import datetime
-import os
 import platform
 import subprocess
 import sys
@@ -48,11 +47,15 @@ class MonitorWindow(QWidget):
         self.setStyleSheet(self._build_qss())
 
         self.gpu = GpuBackend()
+        if self.gpu.kind == "sim":
+            self.setWindowTitle("系统监控 — AMD 仿真模式")
+            self._sim_mode = True
+        else:
+            self._sim_mode = False
         self.net_etw = NetworkETW()
         self.cpu_sensors = CpuSensors()
         self._pname_cache = {}
         self._last_mem_pct = 0
-
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
@@ -367,9 +370,14 @@ class MonitorWindow(QWidget):
         gpus = self.gpu.static_info()
         if gpus:
             for i, g in enumerate(gpus):
-                rows.append((f"GPU {i}", f"{g['name']}  ({fmt_bytes(g['mem_total'])})"))
+                label = f"{g['name']}"
+                if g.get("mem_total"):
+                    label += f"  ({fmt_bytes(g['mem_total'])})"
+                rows.append((f"GPU {i}", label))
         else:
-            rows.append(("GPU", "未检测到 (需安装 NVIDIA 驱动 + pynvml)"))
+            rows.append(
+                ("GPU", "未检测到 (NVIDIA: nvidia-ml-py, AMD: pythonnet + LHM)")
+            )
 
         for r, (k, v) in enumerate(rows):
             key = QLabel(k)
@@ -579,7 +587,10 @@ class MonitorWindow(QWidget):
 
         parts = []
         t, p = self.cpu_sensors.temp, self.cpu_sensors.power
-        parts.append(f"温度 {t:.0f}°C" if t is not None else "温度 N/A")
+        if t is not None:
+            parts.append(f"温度 {t:.0f}°C")
+        else:
+            parts.append("温度 N/A")
         parts.append(f"功耗 {p:.0f} W" if p is not None else "功耗 N/A")
         rf = self.cpu_sensors.freq
         if rf:

@@ -1,0 +1,62 @@
+# Build outputs
+x64/
+x86/
+Debug/
+Release/
+*.obj
+*.pdb
+*.sys
+*.dll
+*.exe
+*.lib
+*.exp
+*.ilk
+*.log
+*.tlog
+*.idb
+*.ipch
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.ncb
+*.opensdf
+*.sdf
+*.cachefile
+*.VC.db
+*.VC.VC.opendb
+
+# Windows Driver Kit
+*.inf.template
+*.cer
+*.cat
+*.cab
+
+# Signing
+*.pfx
+*.p12
+*.cer
+
+# Temporary files
+*.tmp
+*.temp
+*~
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Package directories
+packages/
+node_modules/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Documentation files
+CLAUDE.md
+TASKS.md

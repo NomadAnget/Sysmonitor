@@ -1,4 +1,3 @@
-import ctypes
 import os
 import sys
 import threading
@@ -15,34 +14,10 @@ class CpuSensors:
         self.power = None
         self.freq = None
         self._stop = False
-        self._wmi = None
         self._lhm_state = None
-        self._is_admin = False
         if sys.platform.startswith("win"):
-            try:
-                self._is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
-            except Exception:
-                pass
+            self._lhm_state = self._init_lhm()
             threading.Thread(target=self._loop, daemon=True).start()
-
-    def _get_wmi_temp(self):
-        try:
-            if self._wmi is None:
-                import win32com.client
-
-                self._wmi = win32com.client.GetObject(
-                    "winmgmts:{impersonationLevel=impersonate}!//./root/cimv2"
-                )
-            zones = self._wmi.ExecQuery(
-                "SELECT * FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation"
-            )
-            for z in zones:
-                temp_k = z.Temperature
-                if 200 < temp_k < 400:
-                    return temp_k - 273.15
-        except Exception:
-            pass
-        return None
 
     def _init_lhm(self):
         try:
@@ -64,7 +39,7 @@ class CpuSensors:
                         break
             if libs not in sys.path:
                 sys.path.append(libs)
-            os.environ["PATH"] = libs + os.pathsep + os.environ["PATH"]
+            os.environ["PATH"] = libs + os.pathsep + os.environ.get("PATH", "")
             clr.AddReference("LibreHardwareMonitorLib")
             from LibreHardwareMonitor.Hardware import Computer, HardwareType, SensorType
 
@@ -122,7 +97,6 @@ class CpuSensors:
             pdh = None
 
         self.per_core_freqs = []
-        lhm_tried = False
 
         while not self._stop:
             if pdh is not None:
@@ -164,20 +138,15 @@ class CpuSensors:
                     except Exception:
                         pass
 
-            if self._is_admin:
-                if not lhm_tried:
-                    lhm_tried = True
-                    self._lhm_state = self._init_lhm()
-                if self._lhm_state[0] is not None:
-                    temp = self._get_lhm_temp()
-                    if temp is not None:
-                        self.temp = temp
-                        time.sleep(1)
-                        continue
-            temp = self._get_wmi_temp()
-            if temp is not None:
-                self.temp = temp
+            state = self._lhm_state
+            if state is not None and state[0] is not None:
+                temp = self._get_lhm_temp()
+                if temp is not None:
+                    self.temp = temp
+                    time.sleep(1)
+                    continue
 
+            self.temp = None
             time.sleep(1)
 
         try:

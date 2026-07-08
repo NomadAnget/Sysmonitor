@@ -1,0 +1,41 @@
+name: Build SafeRing0 Driver
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ opencode ]
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install WDK
+        shell: pwsh
+        run: |
+          $wdkUrl = "https://go.microsoft.com/fwlink/?linkid=2272234"
+          $wdkInstaller = "$env:TEMP\wdksetup.exe"
+          Invoke-WebRequest -Uri $wdkUrl -OutFile $wdkInstaller -UseBasicParsing
+          $proc = Start-Process -FilePath $wdkInstaller -ArgumentList "/quiet", "/norestart", "/features", "+" -Wait -NoNewWindow -PassThru
+          if ($proc.ExitCode -ne 0) { exit 1 }
+          $vsix = Get-ChildItem "C:\Program Files*\Windows Kits\10\Vsix\*\WDK.vsix" -Recurse | Select-Object -First 1
+          if (-not $vsix) { Write-Error "WDK.vsix not found"; exit 1 }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = & $vswhere -products * -requires Microsoft.Component.MSBuild -version "[17.0,18.0)" -property installationPath -latest
+          $vsixInstaller = Join-Path $vsInstall "Common7\IDE\VSIXInstaller.exe"
+          Start-Process -FilePath $vsixInstaller -ArgumentList "/q", $vsix.FullName -Wait -NoNewWindow -PassThru
+
+      - name: Build SafeRing0.sys (Release x64)
+        shell: pwsh
+        run: |
+          msbuild sring0\build\SafeRing0.sln /p:Configuration=Release /p:Platform=x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SafeRing0-x64
+          path: sring0\build\bin\Release\SafeRing0.sys
