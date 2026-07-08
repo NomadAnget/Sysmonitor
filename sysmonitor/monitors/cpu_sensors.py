@@ -92,7 +92,7 @@ class CpuSensors:
         return None
 
     def _loop(self):
-        pdh = qh = ch = ch_freq = None
+        pdh = qh = ch = ch_freq = ch_core = None
         base_mhz = None
         try:
             import win32pdh
@@ -102,6 +102,9 @@ class CpuSensors:
             ch = win32pdh.AddEnglishCounter(qh, r"\Energy Meter(*)\Power")
             ch_freq = win32pdh.AddEnglishCounter(
                 qh, r"\Processor Information(_Total)\% Processor Performance"
+            )
+            ch_core = win32pdh.AddEnglishCounter(
+                qh, r"\Processor Information(*)\% Processor Performance"
             )
             win32pdh.CollectQueryData(qh)
             try:
@@ -118,6 +121,7 @@ class CpuSensors:
         except Exception:
             pdh = None
 
+        self.per_core_freqs = []
         lhm_tried = False
 
         while not self._stop:
@@ -138,6 +142,25 @@ class CpuSensors:
                         )
                         if perf and perf > 0:
                             self.freq = base_mhz * perf / 100.0
+                    except Exception:
+                        pass
+                if ch_core is not None and base_mhz:
+                    try:
+                        raw = pdh.GetFormattedCounterArray(ch_core, pdh.PDH_FMT_DOUBLE)
+                        cores = []
+                        for name, pct in raw.items():
+                            if name == "_Total":
+                                continue
+                            parts = name.split(",")
+                            if len(parts) == 2:
+                                try:
+                                    cores.append(
+                                        (int(parts[1]), base_mhz * pct / 100.0)
+                                    )
+                                except ValueError:
+                                    pass
+                        cores.sort(key=lambda x: x[0])
+                        self.per_core_freqs = [c[1] for c in cores]
                     except Exception:
                         pass
 

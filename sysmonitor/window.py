@@ -558,9 +558,14 @@ class MonitorWindow(QWidget):
         total = sum(per) / len(per) if per else 0
         self.cpu_total.set_value(total)
         self.cpu_spark.push(total)
+        core_freqs = self.cpu_sensors.per_core_freqs
         for i, v in enumerate(per):
             if i < len(self.core_rows):
-                self.core_rows[i].set_value(v)
+                f = core_freqs[i] if i < len(core_freqs) and core_freqs[i] else None
+                if f:
+                    self.core_rows[i].set_value(v, f"{v:.0f}%  {f:.0f}MHz")
+                else:
+                    self.core_rows[i].set_value(v)
 
         parts = []
         t, p = self.cpu_sensors.temp, self.cpu_sensors.power
