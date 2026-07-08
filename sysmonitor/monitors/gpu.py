@@ -206,10 +206,10 @@ class GpuBackend:
 
     def _init_nvml(self):
         try:
-            import pynvml
+            import nvidia_ml_py as pynvml
         except ImportError:
             try:
-                import nvidia_ml_py as pynvml
+                import pynvml
             except ImportError:
                 return
         try:
