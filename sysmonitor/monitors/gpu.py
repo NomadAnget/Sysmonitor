@@ -408,7 +408,7 @@ class GpuBackend:
             with self._bg_lock:
                 self._bg_data = self._poll_nvml()
                 self._bg_mem = self._poll_mem_nvml()
-            time.sleep(0.3)
+            time.sleep(1.0)
 
     # ── poll / poll_mem dispatchers ─────────────────────────
 
