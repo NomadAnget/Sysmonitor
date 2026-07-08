@@ -18,6 +18,9 @@ jobs:
       - name: Sync environment (uv)
         run: uv sync --group dev
 
+      - name: Download third-party dependencies
+        run: ./scripts/get-deps.ps1
+
       - name: Build with Nuitka
         # 与本地构建命令一致; CI 中不加 --clean-cache=all 以复用编译缓存
         run: >

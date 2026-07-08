@@ -284,16 +284,19 @@ class GpuBackend:
     def _find_libs(self):
         from ..utils import res_path
 
-        libs = res_path("libs")
-        if not os.path.exists(os.path.join(libs, "LibreHardwareMonitorLib.dll")):
-            for cand in (
-                os.path.join(os.path.dirname(sys.executable), "libs"),
-                os.path.join(os.getcwd(), "libs"),
-            ):
-                if os.path.exists(os.path.join(cand, "LibreHardwareMonitorLib.dll")):
-                    libs = cand
-                    break
-        return libs
+        for base in (res_path("libs", "LHM"), res_path("libs")):
+            if os.path.exists(os.path.join(base, "LibreHardwareMonitorLib.dll")):
+                return base
+        for cand in (
+            os.path.join(os.path.dirname(sys.executable), "libs"),
+            os.path.join(os.getcwd(), "libs"),
+        ):
+            lhm_cand = os.path.join(cand, "LHM")
+            if os.path.exists(os.path.join(lhm_cand, "LibreHardwareMonitorLib.dll")):
+                return lhm_cand
+            if os.path.exists(os.path.join(cand, "LibreHardwareMonitorLib.dll")):
+                return cand
+        return res_path("libs", "LHM")
 
     def _init_lhm_amd(self):
         try:

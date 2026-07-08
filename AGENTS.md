@@ -82,7 +82,9 @@ Key assets: `libs/logo.ico`, `libs/LHM/*.dll` (LibreHardwareMonitorLib).
 
 ## Build / CI quirks
 
-**Nuitka** (primary): `.\build.ps1` runs `uv sync --group dev` then `uv run python -m nuitka --standalone --onefile --windows-console-mode=disable --windows-uac-admin --plugin-enable=pyqt6 --include-raw-dir=libs=libs --windows-icon-from-ico=libs/logo.ico -o SysMonitor.exe main.py`
+**Binary dependencies** (`scripts/get-deps.ps1`): LHM DLLs and PawnIO_setup.exe are not in git. Run the script before any build — it downloads from official GitHub releases. `build.ps1` calls it automatically.
+
+**Nuitka** (primary): `.\build.ps1` runs `scripts/get-deps.ps1`, `uv sync --group dev`, then `uv run python -m nuitka --standalone --onefile --windows-console-mode=disable --windows-uac-admin --plugin-enable=pyqt6 --include-raw-dir=libs=libs --windows-icon-from-ico=libs/logo.ico -o SysMonitor.exe main.py`
 
 **PyInstaller** (alternative): `pyinstaller SysMonitor.spec`
 

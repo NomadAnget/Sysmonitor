@@ -18,9 +18,12 @@ monitor.build/
 monitor_backup_*.py
 mica_test.py
 
+# 通过 scripts/get-deps.ps1 下载的二进制依赖
+libs/LHM/
+libs/PawnIO_setup.exe
+
 # 临时排除
 *.exe
-!libs/PawnIO_setup.exe
 *.png
 !docs/*.png
 *.psd
@@ -31,5 +34,4 @@ make_ico.py
 .venv/
 SysMonitor.cmd
 
-sring0/build/bin/
-sring0/build/obj/
+

@@ -24,6 +24,10 @@ jobs:
       - name: Sync environment
         run: uv sync --group dev
 
+      - name: Download third-party dependencies
+        shell: pwsh
+        run: ./scripts/get-deps.ps1
+
       - name: Build with Nuitka
         # 用 cmd 单行执行: 参数原样传递, 绕开 pwsh 对长选项的解析差异
         # (曾出现 --windows-disable-console/--include-data-dir/图标 选项被吞)

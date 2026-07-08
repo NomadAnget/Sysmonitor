@@ -3,6 +3,9 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# 下载/更新第三方二进制依赖 (LHM DLLs, PawnIO_setup.exe)
+.\scripts\get-deps.ps1
+
 uv sync --group dev
 uv run python -m nuitka --standalone --onefile `
     --windows-console-mode=disable --windows-uac-admin `
