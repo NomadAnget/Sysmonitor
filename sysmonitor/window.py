@@ -432,7 +432,6 @@ class MonitorWindow(QWidget):
         lay.addWidget(cpu_row)
 
         self._cpu_proc_top = []
-        threading.Thread(target=self._cpu_proc_worker, daemon=True).start()
         return box
 
     def _build_memory(self):
@@ -460,37 +459,29 @@ class MonitorWindow(QWidget):
         self._mem_freq_str = None
         self._mem_proc_top = []
         self._async_query_mem_freq()
-        threading.Thread(target=self._mem_proc_worker, daemon=True).start()
+        threading.Thread(target=self._proc_worker, daemon=True).start()
         return box
 
-    def _mem_proc_worker(self):
+    def _proc_worker(self):
         while True:
-            procs = []
-            for p in psutil.process_iter(["name", "memory_info"]):
-                try:
-                    procs.append(
-                        (p.info["name"] or f"PID{p.pid}", p.info["memory_info"].rss)
-                    )
-                except Exception:
-                    continue
-            procs.sort(key=lambda x: x[1], reverse=True)
-            self._mem_proc_top = procs[:6]
-            time.sleep(1.0)
-
-    def _cpu_proc_worker(self):
-        while True:
-            procs = []
-            for p in psutil.process_iter(["name", "cpu_percent"]):
+            mem_procs = []
+            cpu_procs = []
+            for p in psutil.process_iter(["name", "memory_info", "cpu_percent"]):
                 try:
                     name = p.info["name"] or f"PID{p.pid}"
-                    if name.lower() in ("system idle process",):
-                        continue
-                    procs.append((name, p.info["cpu_percent"] or 0))
+                    mem = p.info["memory_info"]
+                    if mem:
+                        mem_procs.append((name, mem.rss))
+                    cpu = p.info["cpu_percent"]
+                    if cpu and name.lower() != "system idle process":
+                        cpu_procs.append((name, cpu))
                 except Exception:
                     continue
-            procs.sort(key=lambda x: x[1], reverse=True)
-            self._cpu_proc_top = procs[:5]
-            time.sleep(1.0)
+            mem_procs.sort(key=lambda x: x[1], reverse=True)
+            cpu_procs.sort(key=lambda x: x[1], reverse=True)
+            self._mem_proc_top = mem_procs[:6]
+            self._cpu_proc_top = cpu_procs[:5]
+            time.sleep(2.0)
 
     def _async_query_mem_freq(self):
         def worker():
