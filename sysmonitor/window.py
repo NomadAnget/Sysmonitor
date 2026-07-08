@@ -419,12 +419,16 @@ class MonitorWindow(QWidget):
         self.cpu_extra.setProperty("kind", "sub")
         lay.addWidget(self.cpu_extra)
 
+        cpu_proc_row = QWidget()
+        cpu_proc_lay = QHBoxLayout(cpu_proc_row)
+        cpu_proc_lay.setContentsMargins(0, 0, 0, 0)
         self.cpu_proc_label = QLabel("")
         self.cpu_proc_label.setProperty("kind", "sub")
         self.cpu_proc_label.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
         )
-        lay.addWidget(self.cpu_proc_label)
+        cpu_proc_lay.addWidget(self.cpu_proc_label, 1)
+        lay.addWidget(cpu_proc_row)
 
         self._cpu_proc_top = []
         threading.Thread(target=self._cpu_proc_worker, daemon=True).start()
@@ -478,9 +482,10 @@ class MonitorWindow(QWidget):
             procs = []
             for p in psutil.process_iter(["name", "cpu_percent"]):
                 try:
-                    procs.append(
-                        (p.info["name"] or f"PID{p.pid}", p.info["cpu_percent"] or 0)
-                    )
+                    name = p.info["name"] or f"PID{p.pid}"
+                    if name.lower() in ("system idle process",):
+                        continue
+                    procs.append((name, p.info["cpu_percent"] or 0))
                 except Exception:
                     continue
             procs.sort(key=lambda x: x[1], reverse=True)
