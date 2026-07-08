@@ -2,7 +2,7 @@
 
 ## Overview
 
-SysMonitor is a Windows desktop system monitoring tool built as a **single-file PyQt6 application** (`monitor.py`). It provides real-time monitoring of CPU, memory, network, and multi-GPU NVIDIA cards with per-process GPU memory and network traffic.
+SysMonitor is a Windows desktop system monitoring tool built as a **PyQt6 package** (`sysmonitor/`). It provides real-time monitoring of CPU, memory, network, and multi-GPU NVIDIA cards with per-process GPU memory and network traffic.
 
 - **Language**: Python 3.13+
 - **GUI**: PyQt6, single-threaded with background threads for slow operations
@@ -13,33 +13,36 @@ SysMonitor is a Windows desktop system monitoring tool built as a **single-file 
 ## Architecture
 
 ```
-monitor.py  (~1711 lines, monolithic)
-├── GpuBackend          # NVIDIA GPU monitoring (NVML + Windows PDH)
-│   └── GpuProcMem      # Per-process GPU memory via PDH array API
-├── NetworkETW          # Per-process network via PDH IO counters
-├── CpuSensors          # Background thread: temp/power/freq
-├── MonitorWindow       # Main PyQt6 window
-│   ├── MeterRow        # Label + QProgressBar widget
-│   ├── Sparkline       # Custom QPainter history chart
-│   └── System tray     # QSystemTrayIcon (minimize-to-tray)
-├── Single instance     # Named mutex + QLocalServer IPC
-└── UAC elevation       # ShellExecuteW("runas") on startup
+sysmonitor/             (package, replaces old monitor.py)
+├── config.py           # ThemeConfig + resolve_colors()
+├── utils.py            # res_path, fmt_bytes, cpu_name, level_color, bar_style
+├── widgets.py          # MeterRow, Sparkline custom widgets
+├── elevation.py        # is_admin, try_elevate (UAC)
+├── single_instance.py  # Named mutex + QLocalServer IPC
+├── window.py           # MonitorWindow (main window, ~738 lines)
+├── main.py             # main() entry point (init → UAC → window)
+├── monitors/
+│   ├── gpu.py          # GpuBackend, GpuProcMem (NVML + PDH)
+│   ├── network.py      # NetworkETW (PDH per-process IO)
+│   └── cpu_sensors.py  # CpuSensors (temp/power/freq thread)
+├── __init__.py          # Package marker
+└── __main__.py          # python -m sysmonitor entry
 ```
 
 ### Entry Point
 
-`main()` in `monitor.py` does:
+`main()` in `sysmonitor/main.py` does:
 1. Qt application init
 2. Single-instance check (named mutex `Local\SysMonitor_SingleInstance_Mutex`)
-3. Auto UAC elevation (if not admin, relaunch via `ShellExecuteW runas`)
+3. Auto UAC elevation (if not admin, relaunch via `ShellExecuteW runas` with `-m sysmonitor`)
 4. Create `MonitorWindow`, start IPC server (`QLocalServer`), show window
 5. `app.exec()` — note `setQuitOnLastWindowClosed(False)` for tray persistence
 
-`main.py` is a stub; the real entry is `monitor.py`.
+Run with: `python -m sysmonitor` or `python main.py`.
 
 ## Core Modules
 
-### GpuBackend (`monitor.py:159`)
+### GpuBackend (`sysmonitor/monitors/gpu.py`)
 
 Multi-GPU monitoring via NVML (`nvidia-ml-py`/`pynvml`). Gracefully degrades when no GPU or no NVML.
 
@@ -52,25 +55,23 @@ Multi-GPU monitoring via NVML (`nvidia-ml-py`/`pynvml`). Gracefully degrades whe
 
 Key detail: LUID to NVML index mapping uses CUDA Driver API (`nvcuda.dll`) via ctypes to call `cuDeviceGetLuid` + `cuDeviceGetPCIBusId`, matching against NVML bus IDs. Falls back to sorted LUID ↔ sorted busId if CUDA unavailable.
 
-### NetworkETW (`monitor.py:432`)
+### NetworkETW (`sysmonitor/monitors/network.py`)
 
 Per-process network monitoring using PDH counter `\Process(*)\IO Read Bytes/sec`. Compatible with HVCI (no kernel driver needed). Samples all processes' I/O and matches instance names to PIDs.
 
-Note: This is a simplified approach. For truly accurate per-process network, ETW kernel network events (`Microsoft-Windows-Kernel-Network`) via `pywintrace` would be needed (requires admin).
-
-### CpuSensors (`monitor.py:513`)
+### CpuSensors (`sysmonitor/monitors/cpu_sensors.py`)
 
 Background daemon thread that polls three metrics every 1s:
 
 | Metric | Source | Requirements |
 |--------|--------|-------------|
-| Temperature | LibreHardwareMonitor via pythonnet (.NET) | Admin, HVCI-compatible |
+| Temperature | `Win32_PerfFormattedData_Counters_ThermalZoneInformation` (WMI) | None (built-in, pywin32) |
 | Power (W) | `\Energy Meter(*_PKG)\Power` PDH counter | None (built-in EMI) |
 | Real-time freq (MHz) | `% Processor Performance` × base MHz | None |
 
-Temperature reading: Loads `LibreHardwareMonitorLib.dll` from `res_path("libs")` via pythonnet+clr. Compatible with Nuitka/PyInstaller onefile builds — DLL search path set via `os.environ["PATH"]`.
+Temperature uses WMI in `root/cimv2` namespace. Temperature is reported in **Kelvin**, converted to Celsius (301K ≈ 27.85°C). Falls back to LibreHardwareMonitor via pythonnet if WMI unavailable.
 
-### MonitorWindow (`monitor.py:824`)
+### MonitorWindow (`sysmonitor/window.py`)
 
 Main window, 700px fixed width, dynamic height based on content (CPU cores × GPU count).
 
@@ -83,7 +84,7 @@ Main window, 700px fixed width, dynamic height based on content (CPU cores × GP
 
 **Theme system** — three modes:
 - `system`: Reads QPalette live, follows Windows dark/light mode + accent color changes
-- `dark` / `light`: Hardcoded color sets
+- `dark` / `light`: Hardcoded color sets (ThemeConfig in config.py)
 - Cycling via `_cycle_theme()`: system → dark → light → ...
 - `colorSchemeChanged` signal + `PaletteChange` event for live system mode tracking
 - Protected by `_applying_theme` flag to prevent re-entrant `setStyleSheet` loops
@@ -99,16 +100,16 @@ Main window, 700px fixed width, dynamic height based on content (CPU cores × GP
 
 ### Custom Widgets
 
-**MeterRow** (`monitor.py:719`): Label + QProgressBar. Optimized `set_value()` — only calls `setStyleSheet` when color tier changes (green/yellow/red). Uses `level_color()` with two palettes (light/dark).
+**MeterRow** (`sysmonitor/widgets.py`): Label + QProgressBar. Optimized `set_value()` — only calls `setStyleSheet` when color tier changes (green/yellow/red). Uses `level_color()` with two palettes (light/dark).
 
-**Sparkline** (`monitor.py:754`): QPainter-rendered history chart (600-point deque). Draws gradient fill + polyline + current value text + 25/50/75% grid lines. Dynamic line color follows value.
+**Sparkline** (`sysmonitor/widgets.py`): QPainter-rendered history chart (600-point deque). Draws gradient fill + polyline + current value text + 25/50/75% grid lines. Dynamic line color follows value.
 
-### Helper Functions
+### Helper Functions (`sysmonitor/utils.py`)
 
-- `res_path(*parts)`: Resolves resource paths for source/Nuitka/PyInstaller modes. Uses `sys._MEIPASS` (PyInstaller) or `__file__` directory (source/Nuitka).
+- `res_path(*parts)`: Resolves resource paths for source/Nuitka/PyInstaller modes. Auto-detects package dir offset.
 - `fmt_bytes(n)`: Human-readable byte formatting (B/KB/MB/GB/TB)
 - `cpu_name()`: Reads `HKLM\HARDWARE\DESCRIPTION\System\CentralProcessor\0\ProcessorNameString` for proper CPU model name
-- `level_color(value)`, `bar_style(value)`, `shade(hex, lighter, amount)`: Theming utilities
+- `level_color(value)`, `bar_style(value)`: Theming utilities (reads ThemeConfig)
 
 ## Data Flow
 
@@ -163,7 +164,7 @@ pyinstaller SysMonitor.spec
 
 ### Packaging paths
 Resources resolved by `res_path()`:
-- Source: relative to `monitor.py` directory
+- Source: relative to package parent (auto-detects `sysmonitor/` offset)
 - Nuitka onefile: relative to temp extraction directory (`__file__`)
 - PyInstaller: relative to `sys._MEIPASS`
 
@@ -171,7 +172,7 @@ Resources resolved by `res_path()`:
 
 | Data | Source | Constraint |
 |------|--------|------------|
-| CPU temp | LibreHardwareMonitor | Requires admin (WinRing0 driver) |
+| CPU temp | WMI ThermalZoneInfo | Most Windows 10/11 systems; Kelvin→Celsius |
 | CPU power | EMI Energy Meter | Always available on modern Windows |
 | Per-process GPU mem | GPU Process Memory counter | Windows only; WDDM mode |
 | Per-process net | PDH IO counters | Simplified; not true ETW |
@@ -181,10 +182,9 @@ Resources resolved by `res_path()`:
 
 ## Conventions
 
-- Single-file architecture: all logic in `monitor.py`
 - Thread safety: background threads communicate via instance attributes (no Qt signals for sensor data)
 - Error resilience: all external calls wrapped in try/except with graceful degradation
-- Theme: QSS-driven (no QPalette mutation except reading), dynamic property selectors for sub-text
+- Theme: QSS-driven via ThemeConfig (no QPalette mutation except reading), dynamic property selectors for sub-text
 - Memory: `deque(maxlen=600)` for history data
 - Onefile builds: use `res_path()` for all resource lookups; never `sys.executable` or `cwd` for data files
-- UAC: child instance launched with `--elevated` flag; parent releases mutex then exits
+- UAC: child instance launched with `-m sysmonitor --elevated`; parent releases mutex then exits
