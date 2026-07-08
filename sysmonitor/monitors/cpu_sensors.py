@@ -1,3 +1,4 @@
+import ctypes
 import os
 import sys
 import threading
@@ -16,7 +17,12 @@ class CpuSensors:
         self._stop = False
         self._wmi = None
         self._lhm_state = None
+        self._is_admin = False
         if sys.platform.startswith("win"):
+            try:
+                self._is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
+            except Exception:
+                pass
             threading.Thread(target=self._loop, daemon=True).start()
 
     def _get_wmi_temp(self):
@@ -135,20 +141,19 @@ class CpuSensors:
                     except Exception:
                         pass
 
-            temp = self._get_wmi_temp()
-            if temp is not None:
-                self.temp = temp
-            elif not lhm_tried:
-                lhm_tried = True
-                self._lhm_state = self._init_lhm()
+            if self._is_admin:
+                if not lhm_tried:
+                    lhm_tried = True
+                    self._lhm_state = self._init_lhm()
                 if self._lhm_state[0] is not None:
                     temp = self._get_lhm_temp()
                     if temp is not None:
                         self.temp = temp
-            elif self._lhm_state[0] is not None:
-                temp = self._get_lhm_temp()
-                if temp is not None:
-                    self.temp = temp
+                        time.sleep(1)
+                        continue
+            temp = self._get_wmi_temp()
+            if temp is not None:
+                self.temp = temp
 
             time.sleep(1)
 
