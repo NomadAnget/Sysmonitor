@@ -15,6 +15,29 @@ class CpuSensors:
         if sys.platform.startswith("win"):
             threading.Thread(target=self._loop, daemon=True).start()
 
+    def _get_perf_temp(self):
+        try:
+            import win32com.client
+
+            wmi = win32com.client.GetObject("winmgmts:\\\\.\\root\\cimv2")
+            data = wmi.ExecQuery(
+                "SELECT * FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation"
+            )
+            for d in data:
+                hp = getattr(d, "HighPrecisionTemperature", None)
+                if hp and hp > 0:
+                    c = (hp / 10.0) - 273.15
+                    if -50 < c < 150:
+                        return c
+                t = getattr(d, "Temperature", None)
+                if t and t > 0:
+                    c = t - 273.15
+                    if -50 < c < 150:
+                        return c
+        except Exception:
+            pass
+        return None
+
     def _get_acpi_temp(self):
         try:
             import win32com.client
@@ -24,7 +47,7 @@ class CpuSensors:
             best = None
             for z in zones:
                 k = z.CurrentTemperature
-                if k > 0:
+                if k and k > 0:
                     c = (k / 10.0) - 273.15
                     name = str(getattr(z, "InstanceName", "") or "")
                     is_cpu = "cpu" in name.lower()
@@ -32,7 +55,9 @@ class CpuSensors:
                         return c
                     if best is None or is_cpu:
                         best = c
-            return best
+            if best is not None:
+                return best
+            return None
         except Exception:
             return None
 
@@ -108,13 +133,18 @@ class CpuSensors:
                     except Exception:
                         pass
 
-            t = self._get_acpi_temp()
+            t = self._get_perf_temp()
             if t is not None:
                 self.temp = t
-                self.temp_source = "ACPI"
+                self.temp_source = "Perf"
             else:
-                self.temp = None
-                self.temp_source = None
+                t = self._get_acpi_temp()
+                if t is not None:
+                    self.temp = t
+                    self.temp_source = "ACPI"
+                else:
+                    self.temp = None
+                    self.temp_source = None
 
             time.sleep(1)
 

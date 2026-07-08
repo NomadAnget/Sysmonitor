@@ -2,17 +2,11 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
-from .elevation import is_admin, try_elevate
 from .single_instance import acquire_single_instance, notify_existing_instance, IPC_NAME
 from .window import MonitorWindow
 
 
 def main():
-    if sys.platform.startswith("win") and not is_admin():
-        if try_elevate():
-            return
-        print("警告: 提权失败，温度传感器可能不可用", file=sys.stderr)
-
     app = QApplication(sys.argv)
 
     _mutex_handle = acquire_single_instance()
