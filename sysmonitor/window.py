@@ -230,9 +230,10 @@ class MonitorWindow(QWidget):
             + self.content.sizeHint().height()
         )
 
-        if self.gpu.count > 4:
-            screen = QApplication.primaryScreen().availableGeometry().height()
-            height = min(full, screen - 80)
+        screen = QApplication.primaryScreen().availableGeometry().height()
+        max_h = screen - 80
+        if full > max_h:
+            height = max_h
             self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         else:
             height = full
