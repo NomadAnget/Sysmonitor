@@ -95,8 +95,6 @@ Key assets: `libs/logo.ico`, `libs/LHM/*.dll` (LibreHardwareMonitorLib).
 - Self-hosted Windows runner
 - Release asset upload uses internal API directly (`http://debian.lan:3257/api/v1`) — cannot use `upload-artifact` action (Forgejo 403 with reverse proxy)
 
-**sring0/**: Separate kernel driver sub-project (C, MSVC `.sln`). Not built as part of main app build. Ignore unless modifying the driver.
-
 ## Conventions
 
 - Error resilience: all external calls (PDH, WMI, NVML, LHM) wrapped in try/except with graceful degradation.
