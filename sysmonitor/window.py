@@ -481,7 +481,7 @@ class MonitorWindow(QWidget):
             cpu_procs.sort(key=lambda x: x[1], reverse=True)
             self._mem_proc_top = mem_procs[:6]
             self._cpu_proc_top = cpu_procs[:5]
-            time.sleep(2.0)
+            time.sleep(1.0)
 
     def _async_query_mem_freq(self):
         def worker():
