@@ -75,7 +75,6 @@ git push origin master v1.x.x
 
 | 数据 | 来源 | 条件 / 限制 |
 |------|------|------------|
-
 | CPU 功耗 | EMI 能量计数器 | 免管理员 |
 | CPU 实时频率 | PDH `% Processor Performance` | 免管理员 |
 | 每进程显存 | PDH `GPU Process Memory` 计数器 | 免管理员 |
