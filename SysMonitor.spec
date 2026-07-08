@@ -11,10 +11,10 @@ for pkg in ("pythonnet", "clr_loader"):
     _hidden += h
 
 a = Analysis(
-    ['monitor.py'],
+    ['main.py'],
     pathex=[],
     binaries=_binaries,
-    datas=[('libs/*.dll', 'libs')] + _datas,
+    datas=[('libs\\LHM\\*.dll', 'libs\\LHM'), ('libs\\PawnIO_setup.exe', 'libs'), ('libs\\logo.ico', 'libs')] + _datas,
     hiddenimports=_hidden,
     hookspath=[],
     hooksconfig={},

@@ -22,11 +22,12 @@ jobs:
         # 与本地构建命令一致; CI 中不加 --clean-cache=all 以复用编译缓存
         run: >
           uv run python -m nuitka --standalone --onefile
-          --windows-disable-console --plugin-enable=pyqt6
+          --windows-console-mode=disable --windows-uac-admin
+          --plugin-enable=pyqt6
           --include-raw-dir=libs=libs
           --windows-icon-from-ico=libs/logo.ico
           --assume-yes-for-downloads
-          -o SysMonitor.exe monitor.py
+          -o SysMonitor.exe main.py
 
       # 不用 upload-artifact: 其上传地址由服务器按公网 ROOT_URL 下发,
       # 会被 openresty 反代 403; 且 act_runner v0.2.13 不支持 continue-on-error。

@@ -37,7 +37,7 @@ from .single_instance import IPC_NAME
 
 
 class MonitorWindow(QWidget):
-    def __init__(self):
+    def __init__(self, gpu=None, net_etw=None, cpu_sensors=None):
         super().__init__()
 
         self.theme_mode = "system"
@@ -47,14 +47,14 @@ class MonitorWindow(QWidget):
         self.setFixedWidth(700)
         self.setStyleSheet(self._build_qss())
 
-        self.gpu = GpuBackend()
+        self.gpu = gpu if gpu is not None else GpuBackend()
         if self.gpu.kind == "sim":
             self.setWindowTitle("系统监控 — AMD 仿真模式")
             self._sim_mode = True
         else:
             self._sim_mode = False
-        self.net_etw = NetworkETW()
-        self.cpu_sensors = CpuSensors()
+        self.net_etw = net_etw if net_etw is not None else NetworkETW()
+        self.cpu_sensors = cpu_sensors if cpu_sensors is not None else CpuSensors()
         self._pname_cache = {}
         self._last_mem_pct = 0
         root = QVBoxLayout(self)
@@ -603,9 +603,13 @@ class MonitorWindow(QWidget):
                     else:
                         self.core_rows[i].set_value(v)
 
-        proc_count = len(psutil.pids())
         p = self.cpu_sensors.power
-        parts = [f"进程 {proc_count}"]
+        t = self.cpu_sensors.temp
+        if t is not None:
+            parts = [f"温度 {t:.0f}°C"]
+        else:
+            proc_count = len(psutil.pids())
+            parts = [f"进程 {proc_count}"]
         parts.append(f"功耗 {p:.0f} W" if p is not None else "功耗 N/A")
         rf = self.cpu_sensors.freq
         if rf:
@@ -646,8 +650,9 @@ class MonitorWindow(QWidget):
                     w["card"].setTitle(f"GPU {idx}: {w['name']} - {ps}")
 
             parts = []
-            if data.get("temp") is not None:
-                parts.append(f"温度 {data['temp']}°C")
+            gt = data.get("temp")
+            if gt is not None:
+                parts.append(f"温度 {gt:.0f}°C")
             if data.get("power") is not None:
                 parts.append(f"功耗 {data['power']:.0f} W")
             if data.get("clock") is not None:

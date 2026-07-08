@@ -20,6 +20,7 @@ mica_test.py
 
 # 临时排除
 *.exe
+!libs/PawnIO_setup.exe
 *.png
 !docs/*.png
 *.psd
