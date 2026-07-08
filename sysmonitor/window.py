@@ -717,14 +717,8 @@ class MonitorWindow(QWidget):
 
         cp_items = [f"{n} {v:.0f}%" for n, v in self._cpu_proc_top]
         cp_text = "  ".join(cp_items)
-        cp_label = self.cpu_proc_label
-        cp_avail = cp_label.width() - 4
-        if cp_text and cp_avail > 20:
-            cp_text = cp_label.fontMetrics().elidedText(
-                cp_text, Qt.TextElideMode.ElideRight, cp_avail
-            )
-        if cp_label.text() != cp_text:
-            cp_label.setText(cp_text or "")
+        if self.cpu_proc_label.text() != cp_text:
+            self.cpu_proc_label.setText(cp_text or "")
         label.setText(text)
 
     def refresh_net(self):
