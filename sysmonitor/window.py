@@ -587,8 +587,10 @@ class MonitorWindow(QWidget):
 
         parts = []
         t, p = self.cpu_sensors.temp, self.cpu_sensors.power
+        src = getattr(self.cpu_sensors, "temp_source", None)
         if t is not None:
-            parts.append(f"温度 {t:.0f}°C")
+            tag = f" ({src})" if src else ""
+            parts.append(f"温度 {t:.0f}°C{tag}")
         else:
             parts.append("温度 N/A")
         parts.append(f"功耗 {p:.0f} W" if p is not None else "功耗 N/A")

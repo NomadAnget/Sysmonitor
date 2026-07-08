@@ -1,70 +1,40 @@
-import os
 import sys
 import threading
 import time
 
 import psutil
 
-from ..utils import res_path
-
 
 class CpuSensors:
     def __init__(self):
         self.temp = None
+        self.temp_source = None
         self.power = None
         self.freq = None
         self._stop = False
-        self._lhm_state = None
         if sys.platform.startswith("win"):
-            self._lhm_state = self._init_lhm()
             threading.Thread(target=self._loop, daemon=True).start()
 
-    def _init_lhm(self):
+    def _get_acpi_temp(self):
         try:
-            from pythonnet import load
+            import win32com.client
 
-            load("netfx")
-            import clr
-
-            libs = res_path("libs")
-            if not os.path.exists(os.path.join(libs, "LibreHardwareMonitorLib.dll")):
-                for cand in (
-                    os.path.join(os.path.dirname(sys.executable), "libs"),
-                    os.path.join(os.getcwd(), "libs"),
-                ):
-                    if os.path.exists(
-                        os.path.join(cand, "LibreHardwareMonitorLib.dll")
-                    ):
-                        libs = cand
-                        break
-            if libs not in sys.path:
-                sys.path.append(libs)
-            os.environ["PATH"] = libs + os.pathsep + os.environ.get("PATH", "")
-            clr.AddReference("LibreHardwareMonitorLib")
-            from LibreHardwareMonitor.Hardware import Computer, HardwareType, SensorType
-
-            comp = Computer()
-            comp.IsCpuEnabled = True
-            comp.Open()
-            return comp, HardwareType, SensorType
+            wmi = win32com.client.GetObject("winmgmts:\\\\.\\root\\wmi")
+            zones = wmi.ExecQuery("SELECT * FROM MSAcpi_ThermalZoneTemperature")
+            best = None
+            for z in zones:
+                k = z.CurrentTemperature
+                if k > 0:
+                    c = (k / 10.0) - 273.15
+                    name = str(getattr(z, "InstanceName", "") or "")
+                    is_cpu = "cpu" in name.lower()
+                    if is_cpu and 0 < c < 120:
+                        return c
+                    if best is None or is_cpu:
+                        best = c
+            return best
         except Exception:
-            return None, None, None
-
-    def _get_lhm_temp(self):
-        comp, hw_type, sensor_type = self._lhm_state
-        try:
-            for hw in comp.Hardware:
-                if hw.HardwareType == hw_type.Cpu:
-                    hw.Update()
-                    for s in hw.Sensors:
-                        if (
-                            s.Name == "CPU Package"
-                            and s.SensorType == sensor_type.Temperature
-                        ):
-                            return float(s.Value)
-        except Exception:
-            pass
-        return None
+            return None
 
     def _loop(self):
         pdh = qh = ch = ch_freq = ch_core = None
@@ -138,15 +108,14 @@ class CpuSensors:
                     except Exception:
                         pass
 
-            state = self._lhm_state
-            if state is not None and state[0] is not None:
-                temp = self._get_lhm_temp()
-                if temp is not None:
-                    self.temp = temp
-                    time.sleep(1)
-                    continue
+            t = self._get_acpi_temp()
+            if t is not None:
+                self.temp = t
+                self.temp_source = "ACPI"
+            else:
+                self.temp = None
+                self.temp_source = None
 
-            self.temp = None
             time.sleep(1)
 
         try:
@@ -154,11 +123,6 @@ class CpuSensors:
                 pdh.CloseQuery(qh)
         except Exception:
             pass
-        if self._lhm_state and self._lhm_state[0] is not None:
-            try:
-                self._lhm_state[0].Close()
-            except Exception:
-                pass
 
     def stop(self):
         self._stop = True
