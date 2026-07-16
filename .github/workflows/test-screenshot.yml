@@ -10,8 +10,13 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - run: uv sync --group dev
       - run: pip install pyautogui -q
+      - run: .\scripts\get-deps.ps1
+
+      - shell: cmd
+        run: uv run python -m nuitka --standalone --onefile --windows-console-mode=disable --windows-uac-admin --plugin-enable=pyqt6 --include-raw-dir=libs=libs --windows-icon-from-ico=libs/logo.ico --assume-yes-for-downloads -o SysMonitor.exe main.py
+
       - run: |
-          Start-Process -WindowStyle Hidden -FilePath "uv" -ArgumentList "run python -m sysmonitor"
+          Start-Process -FilePath ".\SysMonitor.exe"
           Start-Sleep 10
           uv run python scripts/test_screenshot.py
       - uses: actions/upload-artifact@v7
