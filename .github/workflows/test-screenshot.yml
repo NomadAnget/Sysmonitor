@@ -1,0 +1,20 @@
+name: Test screenshot (one-off)
+
+on: workflow_dispatch
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - run: uv sync --group dev
+      - run: pip install pyautogui -q
+      - run: |
+          Start-Process -WindowStyle Hidden -FilePath "uv" -ArgumentList "run python -m sysmonitor"
+          Start-Sleep 10
+          uv run python scripts/test_screenshot.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: screenshot
+          path: screenshot.png
