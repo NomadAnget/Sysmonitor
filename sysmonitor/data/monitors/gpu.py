@@ -282,7 +282,7 @@ class GpuBackend:
     # ── AMD via LHM ─────────────────────────────────────────
 
     def _find_libs(self):
-        from ..utils import res_path
+        from ...utils.utils import res_path
 
         for base in (res_path("libs", "LHM"), res_path("libs")):
             if os.path.exists(os.path.join(base, "LibreHardwareMonitorLib.dll")):

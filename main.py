@@ -1,3 +1,3 @@
-from sysmonitor.main import main
+from sysmonitor.core.main import main
 
 main()

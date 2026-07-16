@@ -11,8 +11,8 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QWidget, QLabel, QProgressBar, QHBoxLayout
 
-from .config import ThemeConfig
-from .utils import level_color, bar_style
+from ..utils.config import ThemeConfig
+from ..utils.utils import level_color, bar_style
 
 
 class MeterRow(QWidget):

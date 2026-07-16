@@ -2,10 +2,6 @@ import ctypes
 import datetime
 import os
 import platform
-import subprocess
-import sys
-import threading
-import time
 import winreg
 
 import psutil
@@ -27,18 +23,19 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QPushButton,
 )
+from PyQt6.QtCore import QTimer
 from PyQt6.QtNetwork import QLocalServer
 
-from .config import ThemeConfig, THEME_ORDER, THEME_LABELS, resolve_colors
-from .utils import res_path, fmt_bytes, cpu_name
-from .widgets import MeterRow, Sparkline, CoreGrid
-from .monitors import GpuBackend, NetworkETW, CpuSensors
+from ..utils.config import ThemeConfig, THEME_ORDER, THEME_LABELS, resolve_colors
+from ..utils.utils import res_path, fmt_bytes, cpu_name
+from ..ui.widgets import MeterRow, Sparkline, CoreGrid
+from ..data.monitor_data import MonitorData
 from .single_instance import IPC_NAME
 
 
 class MonitorWindow(QWidget):
-    def __init__(self, gpu=None, net_etw=None, cpu_sensors=None):
-        super().__init__()
+    def __init__(self, data=None, parent=None):
+        super().__init__(parent)
 
         self.theme_mode = "system"
         resolve_colors("system")
@@ -47,15 +44,12 @@ class MonitorWindow(QWidget):
         self.setFixedWidth(700)
         self.setStyleSheet(self._build_qss())
 
-        self.gpu = gpu if gpu is not None else GpuBackend()
-        if self.gpu.kind == "sim":
+        self._data = data if data is not None else MonitorData()
+        if self._data.gpu.kind == "sim":
             self.setWindowTitle("系统监控 — AMD 仿真模式")
             self._sim_mode = True
         else:
             self._sim_mode = False
-        self.net_etw = net_etw if net_etw is not None else NetworkETW()
-        self.cpu_sensors = cpu_sensors if cpu_sensors is not None else CpuSensors()
-        self._pname_cache = {}
         self._last_mem_pct = 0
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -89,23 +83,10 @@ class MonitorWindow(QWidget):
 
         self._build_tray()
 
-        psutil.cpu_percent(percpu=True)
-
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.refresh_main)
-        interval = self.freq_combo.currentData()
-        self.timer.start(interval)
-        self.gpu.set_interval(interval)
-        self.mem_timer = QTimer(self)
-        self.mem_timer.timeout.connect(self.refresh_mem)
-        self.mem_timer.start(500)
-        self.net_timer = QTimer(self)
-        self.net_timer.timeout.connect(self.refresh_net)
-        self.net_timer.start(1000)
-
-        self.refresh_mem()
-        self.refresh_net()
-        self.refresh_main()
+        self._data.cpu_updated.connect(self._on_cpu)
+        self._data.mem_updated.connect(self._on_mem)
+        self._data.net_updated.connect(self._on_net)
+        self._data.gpu_updated.connect(self._on_gpu)
 
         self._apply_theme(self.theme_mode)
         self._apply_dynamic_height()
@@ -280,9 +261,8 @@ class MonitorWindow(QWidget):
 
     def _change_interval(self, _idx):
         ms = self.freq_combo.currentData()
-        if ms and hasattr(self, "timer"):
-            self.timer.setInterval(ms)
-            self.gpu.set_interval(ms)
+        if ms:
+            self._data.set_interval(ms)
 
     def _toggle_on_top(self, _checked=False):
         self._on_top = not self._on_top
@@ -338,11 +318,9 @@ class MonitorWindow(QWidget):
 
     def _quit(self):
         self._force_quit = True
-        if hasattr(self, "timer") and self.timer.isActive():
-            self.timer.stop()
         self.close()
-        self.gpu.shutdown()
-        os._exit(0)
+        self._data.stop()
+        QTimer.singleShot(0, QApplication.instance().quit)
 
     def _build_sysinfo(self):
         box = QGroupBox("系统配置")
@@ -366,7 +344,7 @@ class MonitorWindow(QWidget):
             ("内存总量", fmt_bytes(vmem.total)),
         ]
 
-        gpus = self.gpu.static_info()
+        gpus = self._data.gpu.static_info()
         if gpus:
             for i, g in enumerate(gpus):
                 label = f"{g['name']}"
@@ -429,8 +407,6 @@ class MonitorWindow(QWidget):
         )
         cpu_lay.addWidget(self.cpu_proc_label, 1)
         lay.addWidget(cpu_row)
-
-        self._cpu_proc_top = []
         return box
 
     def _build_memory(self):
@@ -455,59 +431,7 @@ class MonitorWindow(QWidget):
         )
         pl.addWidget(self.mem_proc_label, 1)
         lay.addWidget(prow)
-        self._mem_freq_str = None
-        self._mem_proc_top = []
-        self._async_query_mem_freq()
-        threading.Thread(target=self._proc_worker, daemon=True).start()
         return box
-
-    def _proc_worker(self):
-        while True:
-            mem_procs = []
-            cpu_procs = []
-            for p in psutil.process_iter(["name", "memory_info", "cpu_percent"]):
-                try:
-                    name = p.info["name"] or f"PID{p.pid}"
-                    mem = p.info["memory_info"]
-                    if mem:
-                        mem_procs.append((name, mem.rss))
-                    cpu = p.info["cpu_percent"]
-                    if cpu and name.lower() != "system idle process":
-                        cpu_procs.append((name, cpu))
-                except Exception:
-                    continue
-            mem_procs.sort(key=lambda x: x[1], reverse=True)
-            cpu_procs.sort(key=lambda x: x[1], reverse=True)
-            self._mem_proc_top = mem_procs[:6]
-            self._cpu_proc_top = cpu_procs[:5]
-            time.sleep(1.0)
-
-    def _async_query_mem_freq(self):
-        def worker():
-            if not sys.platform.startswith("win"):
-                return
-            try:
-                r = subprocess.run(
-                    [
-                        "powershell",
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-Command",
-                        "(Get-CimInstance Win32_PhysicalMemory | "
-                        "Select-Object -First 1).Speed",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=8,
-                    creationflags=0x08000000,
-                )
-                s = r.stdout.strip()
-                if s.isdigit():
-                    self._mem_freq_str = f"内存 {s} MHz"
-            except Exception:
-                pass
-
-        threading.Thread(target=worker, daemon=True).start()
 
     def _build_network(self):
         box = QGroupBox("网络")
@@ -516,7 +440,7 @@ class MonitorWindow(QWidget):
         lay.addWidget(self.net_label)
         self.net_proc_label = None
 
-        if self.net_etw is not None and self.net_etw.ok:
+        if self._data.net_etw is not None and self._data.net_etw.ok:
             sep = QLabel("│")
             sep.setProperty("kind", "sep")
             lay.addWidget(sep)
@@ -528,18 +452,14 @@ class MonitorWindow(QWidget):
             lay.addWidget(self.net_proc_label, 1)
         else:
             lay.addStretch(1)
-
-        self._net_last = psutil.net_io_counters()
-        self._net_ts = time.monotonic()
-        self._net_etw_last = None
         return box
 
     def _build_gpu(self):
-        box = QGroupBox(f"GPU  (检测到 {self.gpu.count} 张)")
+        box = QGroupBox(f"GPU  (检测到 {self._data.gpu.count} 张)")
         lay = QVBoxLayout(box)
         self.gpu_widgets = []
 
-        if self.gpu.count == 0:
+        if self._data.gpu.count == 0:
             tip = QLabel(
                 "未检测到可用 GPU。\nNVIDIA 用户请安装: pip install nvidia-ml-py"
             )
@@ -547,7 +467,7 @@ class MonitorWindow(QWidget):
             lay.addWidget(tip)
             return box
 
-        for i, g in enumerate(self.gpu.static_info()):
+        for i, g in enumerate(self._data.gpu.static_info()):
             card = QGroupBox(f"GPU {i}: {g['name']}")
             card.setStyleSheet("QGroupBox{font-weight:normal;}")
             cl = QVBoxLayout(card)
@@ -586,43 +506,24 @@ class MonitorWindow(QWidget):
             )
         return box
 
-    def refresh_main(self):
-        per = psutil.cpu_percent(percpu=True)
-        total = sum(per) / len(per) if per else 0
-        self.cpu_total.set_value(total)
-        self.cpu_spark.push(total)
-        core_freqs = self.cpu_sensors.per_core_freqs
+    def _on_cpu(self, data):
+        self.cpu_total.set_value(data.total)
+        self.cpu_spark.push(data.total)
+
         if self._compact_mode:
-            self.core_grid.update_data(per, core_freqs)
+            self.core_grid.update_data(data.per, data.freqs)
         else:
-            for i, v in enumerate(per):
+            for i, v in enumerate(data.per):
                 if i < len(self.core_rows):
-                    f = core_freqs[i] if i < len(core_freqs) and core_freqs[i] else None
+                    f = data.freqs[i] if i < len(data.freqs) and data.freqs[i] else None
                     if f:
                         self.core_rows[i].set_value(v, f"{v:.0f}%  {f:.0f}MHz")
                     else:
                         self.core_rows[i].set_value(v)
 
-        p = self.cpu_sensors.power
-        t = self.cpu_sensors.temp
-        if t is not None:
-            parts = [f"温度 {t:.0f}°C"]
-        else:
-            proc_count = len(psutil.pids())
-            parts = [f"进程 {proc_count}"]
-        parts.append(f"功耗 {p:.0f} W" if p is not None else "功耗 N/A")
-        rf = self.cpu_sensors.freq
-        if rf:
-            parts.append(f"频率 {rf:.0f} MHz")
-        else:
-            try:
-                freq = psutil.cpu_freq()
-                if freq:
-                    parts.append(f"频率 {freq.current:.0f} MHz")
-            except Exception:
-                pass
-        self.cpu_extra.setText("    ".join(parts))
-        cp_items = [f"{n} {v:.0f}%" for n, v in self._cpu_proc_top]
+        self.cpu_extra.setText(data.extra_text)
+
+        cp_items = [f"{n} {v:.0f}%" for n, v in data.procs]
         cp_text = "  ".join(cp_items)
         cp_avail = self.cpu_proc_label.width() - 4
         if cp_text and cp_avail > 20:
@@ -632,45 +533,26 @@ class MonitorWindow(QWidget):
         if self.cpu_proc_label.text() != cp_text:
             self.cpu_proc_label.setText(cp_text or "")
 
-        for idx, (w, data) in enumerate(zip(self.gpu_widgets, self.gpu.poll())):
-            gu = data.get("gpu_util")
-            w["util"].set_value(gu, f"{gu if gu is not None else 'N/A'}%")
-            w["spark"].push(gu)
+        self.status.setText("更新于 " + datetime.datetime.now().strftime("%H:%M:%S"))
+        self.tray.setToolTip(
+            f"系统监控  |  CPU {data.total:.0f}%   内存 {self._last_mem_pct:.0f}%"
+        )
 
-            cw, cg = data.get("pcie_width"), data.get("pcie_gen")
-            mw, mg = data.get("max_pcie_width"), data.get("max_pcie_gen")
-            if cw and cg and mw and mg:
-                _V = {1: "1.1", 2: "2.0", 3: "3.0", 4: "4.0", 5: "5.0"}
-                ps = (
-                    f"PCIE X{mw} {_V.get(mg, f'{mg}.0')}"
-                    f" @ X{cw} {_V.get(cg, f'{cg}.0')}"
-                )
-                if ps != w["pcie"]:
-                    w["pcie"] = ps
-                    w["card"].setTitle(f"GPU {idx}: {w['name']} - {ps}")
+    def _on_gpu(self, items):
+        for idx, (w, item) in enumerate(zip(self.gpu_widgets, items)):
+            w["util"].set_value(
+                item.util,
+                f"{item.util if item.util is not None else 'N/A'}%",
+            )
+            w["spark"].push(item.util)
 
-            parts = []
-            gt = data.get("temp")
-            if gt is not None:
-                parts.append(f"温度 {gt:.0f}°C")
-            if data.get("power") is not None:
-                parts.append(f"功耗 {data['power']:.0f} W")
-            if data.get("clock") is not None:
-                parts.append(f"频率 {data['clock']} MHz")
-            enc, dec = data.get("enc_util"), data.get("dec_util")
-            if enc is not None or dec is not None:
-                parts.append(
-                    f"编解码 {enc if enc is not None else 0}%"
-                    f"/{dec if dec is not None else 0}%"
-                )
-            w["status"].setText("   ".join(parts))
+            if item.pcie_str and item.pcie_str != w["pcie"]:
+                w["pcie"] = item.pcie_str
+                w["card"].setTitle(f"GPU {idx}: {w['name']} - {item.pcie_str}")
 
-            plist = data.get("procs") or []
-            if plist:
-                items = [f"{p['name']} {fmt_bytes(p['mem'])}" for p in plist]
-                ptext = ", ".join(items)
-            else:
-                ptext = "无"
+            w["status"].setText(item.status_text)
+
+            ptext = item.procs_text
             label = w["proc"]
             avail = label.width() - 4
             if avail > 20:
@@ -679,25 +561,20 @@ class MonitorWindow(QWidget):
                 )
             label.setText(ptext)
 
-        self.status.setText("更新于 " + datetime.datetime.now().strftime("%H:%M:%S"))
-        self.tray.setToolTip(
-            f"系统监控  |  CPU {total:.0f}%   内存 {self._last_mem_pct:.0f}%"
-        )
-
-    def refresh_mem(self):
-        vmem = psutil.virtual_memory()
-        self._last_mem_pct = vmem.percent
+    def _on_mem(self, data):
+        self._last_mem_pct = data.mem_pct
         self.mem_row.set_value(
-            vmem.percent,
-            f"{fmt_bytes(vmem.used)} / {fmt_bytes(vmem.total)}  ({vmem.percent:.0f}%)",
+            data.mem_pct,
+            f"{fmt_bytes(data.mem_used)} / {fmt_bytes(data.mem_total)}  "
+            f"({data.mem_pct:.0f}%)",
         )
-        swap = psutil.swap_memory()
         self.swap_row.set_value(
-            swap.percent,
-            f"{fmt_bytes(swap.used)} / {fmt_bytes(swap.total)}  ({swap.percent:.0f}%)",
+            data.swap_pct,
+            f"{fmt_bytes(data.swap_used)} / {fmt_bytes(data.swap_total)}  "
+            f"({data.swap_pct:.0f}%)",
         )
 
-        for w, (used, total) in zip(self.gpu_widgets, self.gpu.poll_mem()):
+        for w, (used, total) in zip(self.gpu_widgets, data.gpu_mem):
             if used is not None and total:
                 pct = used / total * 100
                 w["mem"].set_value(
@@ -706,10 +583,10 @@ class MonitorWindow(QWidget):
             else:
                 w["mem"].set_value(None, "N/A")
 
-        if self._mem_freq_str and self.mem_freq_label.text() != self._mem_freq_str:
-            self.mem_freq_label.setText(self._mem_freq_str)
+        if data.freq and self.mem_freq_label.text() != data.freq:
+            self.mem_freq_label.setText(data.freq)
 
-        items = [f"{n} {fmt_bytes(r)}" for n, r in self._mem_proc_top]
+        items = [f"{n} {fmt_bytes(r)}" for n, r in data.procs]
         text = "  ".join(items)
         label = self.mem_proc_label
         avail = label.width() - 4
@@ -717,51 +594,22 @@ class MonitorWindow(QWidget):
             text = label.fontMetrics().elidedText(
                 text, Qt.TextElideMode.ElideRight, avail
             )
-
         label.setText(text)
 
-    def refresh_net(self):
-        now = time.monotonic()
-        cur = psutil.net_io_counters()
-        dt = now - self._net_ts
-        if dt > 0:
-            down = (cur.bytes_recv - self._net_last.bytes_recv) / dt
-            up = (cur.bytes_sent - self._net_last.bytes_sent) / dt
-            self.net_label.setText(
-                f"↓ 下行 {fmt_bytes(down)}/s      ↑ 上行 {fmt_bytes(up)}/s"
-            )
-        self._net_last = cur
-        self._net_ts = now
+    def _on_net(self, data):
+        self.net_label.setText(
+            f"↓ 下行 {fmt_bytes(data.down)}/s      ↑ 上行 {fmt_bytes(data.up)}/s"
+        )
 
-        if (
-            self.net_etw is not None
-            and self.net_etw.ok
-            and self.net_proc_label is not None
-        ):
-            sent, recv = self.net_etw.snapshot()
-            if self._net_etw_last is not None:
-                ps, pr, pts = self._net_etw_last
-                d = now - pts
-                if d > 0:
-                    rates = {}
-                    for pid in set(sent) | set(recv):
-                        delta = (sent.get(pid, 0) - ps.get(pid, 0)) + (
-                            recv.get(pid, 0) - pr.get(pid, 0)
-                        )
-                        rate = delta / d
-                        if rate > 1024:
-                            rates[pid] = rate
-                    top = sorted(rates.items(), key=lambda x: -x[1])[:4]
-                    items = [f"{self._pname(pid)} {fmt_bytes(r)}/s" for pid, r in top]
-                    text = "  ".join(items)
-                    label = self.net_proc_label
-                    avail = label.width() - 4
-                    if avail > 20:
-                        text = label.fontMetrics().elidedText(
-                            text, Qt.TextElideMode.ElideRight, avail
-                        )
-                    label.setText(text)
-            self._net_etw_last = (sent, recv, now)
+        if self.net_proc_label is not None and data.procs_text:
+            text = data.procs_text
+            label = self.net_proc_label
+            avail = label.width() - 4
+            if avail > 20:
+                text = label.fontMetrics().elidedText(
+                    text, Qt.TextElideMode.ElideRight, avail
+                )
+            label.setText(text)
 
     def closeEvent(self, event):
         if not self._force_quit and self.tray.isVisible():
@@ -774,22 +622,6 @@ class MonitorWindow(QWidget):
                 2000,
             )
             return
-        self.timer.stop()
-        self.mem_timer.stop()
-        self.net_timer.stop()
-        self.gpu.shutdown()
-        if self.net_etw is not None:
-            self.net_etw.close()
-        self.cpu_sensors.stop()
+        self._data.stop()
         self.tray.hide()
         super().closeEvent(event)
-
-    def _pname(self, pid):
-        name = self._pname_cache.get(pid)
-        if name is None:
-            try:
-                name = psutil.Process(pid).name()
-            except Exception:
-                name = f"PID {pid}"
-            self._pname_cache[pid] = name
-        return name

@@ -2,8 +2,8 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QApplica
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 
-from .utils import res_path
-from .config import resolve_colors, ThemeConfig
+from ..utils.utils import res_path
+from ..utils.config import resolve_colors, ThemeConfig
 
 
 class SplashWindow(QWidget):
@@ -69,7 +69,7 @@ class SplashWindow(QWidget):
 
         layout.addSpacing(10)
 
-        self._status = QLabel("正在准备…")
+        self._status = QLabel("正在启动…")
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         fs = self._status.font()
         fs.setPointSize(10)

@@ -5,8 +5,6 @@ import time
 
 import psutil
 
-from ..pawnio import ensure_pawnio
-
 
 class CpuSensors:
     def __init__(self):
@@ -20,11 +18,10 @@ class CpuSensors:
         self._lhm_hw = None
         self._lhm_st = None
         if sys.platform.startswith("win"):
-            ensure_pawnio()
             threading.Thread(target=self._loop, daemon=True).start()
 
     def _init_lhm(self):
-        from ..utils import res_path
+        from ...utils.utils import res_path
 
         libs = res_path("libs", "LHM")
         if not os.path.exists(os.path.join(libs, "LibreHardwareMonitorLib.dll")):

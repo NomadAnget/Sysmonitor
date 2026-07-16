@@ -7,12 +7,18 @@ from PyQt6.QtGui import QColor
 
 
 def res_path(*parts):
-    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    if not os.path.exists(os.path.join(base, "libs")):
-        parent = os.path.dirname(base)
-        if os.path.exists(os.path.join(parent, "libs")):
+    base = getattr(sys, "_MEIPASS", None)
+    if base is None:
+        base = os.path.dirname(os.path.abspath(__file__))
+        while True:
+            if os.path.exists(os.path.join(base, "libs")):
+                break
+            parent = os.path.dirname(base)
+            if parent == base:
+                base = None
+                break
             base = parent
-    return os.path.join(base, *parts)
+    return os.path.join(base, *parts) if base else os.path.join(*parts)
 
 
 def fmt_bytes(n):

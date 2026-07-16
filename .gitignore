@@ -1,37 +1,34 @@
 # Python
 __pycache__/
 *.pyc
+.ruff_cache/
 
-# PyInstaller 构建产物
-build/
-dist/
-dist.zip
-
-# 构建缓存
-*.dist/
-monitor.build/
+# Nuitka 构建产物
+main.build/
+main.dist/
+main.onefile-build/
+SysMonitor.exe
+SysMonitor.cmd
 
 # 编辑器
 .vscode/
-
-# 本地备份 / 临时测试
-monitor_backup_*.py
-mica_test.py
 
 # 通过 scripts/get-deps.ps1 下载的二进制依赖
 libs/LHM/
 libs/PawnIO_setup.exe
 
-# 临时排除
-*.exe
-*.png
-!docs/*.png
-*.psd
+# 临时文件
+qc
+query
 nuitka-crash-report.xml
 make_ico.py
 
-# uv 虚拟环境 (pyproject/uv.lock/.python-version 需入库供 CI 复现)
+# 图片
+*.png
+!docs/*.png
+*.psd
+
+# uv 虚拟环境
 .venv/
-SysMonitor.cmd
 
 
