@@ -20,7 +20,7 @@ CPU / 内存 / 网络 / 多 GPU 一目了然，无需安装即开即用。
 
 **CPU**
 - 总占用 + 每逻辑核心占用（进度条网格）+ 历史曲线
-- 温度 — LibreHardwareMonitor 读取（需管理员权限 + .NET Framework，无权限时安全降级）
+- 温度 — LibreHardwareMonitor 读取（需管理员权限 + PawnIO 驱动 + .NET Framework，启动时在加载界面询问，可跳过）
 - 功耗 — Windows EMI 能量计量计数器（`\Energy Meter(*_PKG)\Power`），无需驱动
 - 实时频率 — `% Processor Performance` × 标称频率，睿频/降频实时反映
 - 高占用进程排行
@@ -46,7 +46,7 @@ CPU / 内存 / 网络 / 多 GPU 一目了然，无需安装即开即用。
 - 窗口置顶开关；高度按核心数 / GPU 数动态计算
 - 系统托盘：关闭最小化到托盘，双击恢复，右键退出
 - CPU/GPU 刷新间隔可调（100–1000ms），内存与进程固定 500/1000ms
-- 加载界面（Splash）：启动时显示初始化进度（PawnIO 驱动 → CPU 传感器 → GPU 检测 → 网络监控）
+- 加载界面（Splash）：启动时显示初始化进度，CPU 温度提权/驱动安装询问直接集成在加载界面中（无独立弹窗）
 
 ## 快速开始
 
@@ -55,7 +55,7 @@ uv sync
 uv run python -m sysmonitor     # 或 python main.py
 ```
 
-无需管理员权限即可使用大部分功能。CPU 温度读取需管理员权限 + .NET Framework（自动降级）。
+无需管理员权限即可使用大部分功能。CPU 温度读取需管理员权限 + PawnIO 驱动；启动时在加载界面询问是否启用。
 
 ## 构建 exe
 
@@ -63,7 +63,7 @@ uv run python -m sysmonitor     # 或 python main.py
 .\build.ps1
 ```
 
-一键编译为 [Nuitka](https://nuitka.net/) 原生单文件 `SysMonitor.exe`，含 `--windows-uac-admin` 提权清单。
+一键编译为 [Nuitka](https://nuitka.net/) 原生单文件 `SysMonitor.exe`。CPU 温度提权在运行时按需触发，无需在 exe 清单中预设管理员权限。
 
 构建前自动执行 `scripts/get-deps.ps1` 下载 LHM DLL 与 PawnIO 驱动安装包。
 
@@ -82,7 +82,7 @@ git push origin master v1.x.x
 | 数据 | 来源 | 条件 |
 |------|------|------|
 | CPU 总占用 / 每核心 | `psutil` | — |
-| CPU 温度 | LibreHardwareMonitor（.NET / LHM） | 管理员权限 + .NET Framework 4.7.2+，无权限时降级（不显示） |
+| CPU 温度 | LibreHardwareMonitor（.NET / LHM） | 管理员权限 + PawnIO 驱动 + .NET Framework 4.7.2+，未启用时降级（不显示） |
 | CPU 功耗 | EMI 能量计数器 `\Energy Meter(*_PKG)\Power` | 免管理员 |
 | CPU 实时频率 | PDH `% Processor Performance` × 标称频率 | 免管理员 |
 | 内存 / 交换占用 | `psutil` | — |

@@ -1,4 +1,3 @@
-import subprocess
 import sys
 import threading
 import time
@@ -172,25 +171,26 @@ class MonitorData(QObject):
             if not sys.platform.startswith("win"):
                 return
             try:
-                r = subprocess.run(
-                    [
-                        "powershell",
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-Command",
-                        "(Get-CimInstance Win32_PhysicalMemory | "
-                        "Select-Object -First 1).Speed",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=8,
-                    creationflags=0x08000000,
+                import pythoncom
+                import win32com.client
+
+                pythoncom.CoInitialize()
+                wmi = win32com.client.GetObject(
+                    "winmgmts:{impersonationLevel=impersonate}!//./root/cimv2"
                 )
-                s = r.stdout.strip()
-                if s.isdigit():
-                    self._mem_freq_str = f"内存 {s} MHz"
+                modules = wmi.ExecQuery("SELECT Speed FROM Win32_PhysicalMemory")
+                for module in modules:
+                    speed = int(module.Speed or 0)
+                    if speed:
+                        self._mem_freq_str = f"内存 {speed} MHz"
+                        break
             except Exception:
                 pass
+            finally:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
 
         threading.Thread(target=worker, daemon=True).start()
 

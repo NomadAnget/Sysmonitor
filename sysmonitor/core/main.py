@@ -2,7 +2,12 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
-from .single_instance import acquire_single_instance, notify_existing_instance, IPC_NAME
+from .single_instance import (
+    IPC_NAME,
+    acquire_single_instance,
+    notify_existing_instance,
+    release_single_instance,
+)
 from .splash import SplashWindow
 
 _STEPS = (
@@ -27,10 +32,42 @@ def main():
     splash.show()
     QApplication.processEvents()
 
-    from ..utils.pawnio import ensure_pawnio, uninstall_pawnio
-
     splash.set_step(0, len(_STEPS), _STEPS[0])
-    ensure_pawnio()
+
+    from ..utils.elevation import is_admin, try_elevate
+    from ..utils.pawnio import install_pawnio_elevated, is_pawnio_ready
+
+    temp_requested = "--enable-cpu-temperature" in sys.argv
+    if not is_admin():
+        if splash.prompt(
+            "CPU 温度读取需要管理员权限。\n\n"
+            "继续后 SysMonitor 将重启并显示 Windows 权限确认。",
+            "启用并重启",
+            "跳过",
+        ):
+            splash.close()
+            release_single_instance(handle)
+            if try_elevate("--enable-cpu-temperature"):
+                return
+            splash.show()
+            splash.prompt(
+                "未获得管理员权限。SysMonitor 将继续启动，但 CPU 温度不可用。",
+                "知道了",
+            )
+    elif not is_pawnio_ready() and (
+        temp_requested
+        or splash.prompt(
+            "CPU 温度读取需要安装 PawnIO 驱动。",
+            "安装",
+            "跳过",
+        )
+    ):
+        splash.set_step(0, len(_STEPS), "正在安装 CPU 温度驱动…")
+        if not install_pawnio_elevated():
+            splash.prompt(
+                "未能安装 PawnIO 驱动，SysMonitor 将继续启动，但 CPU 温度不可用。",
+                "知道了",
+            )
 
     from ..data.monitors import CpuSensors
 
@@ -57,6 +94,5 @@ def main():
     splash.close()
     del splash
 
-    app.aboutToQuit.connect(uninstall_pawnio)
     win.show()
     sys.exit(app.exec())

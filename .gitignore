@@ -9,6 +9,9 @@ main.dist/
 main.onefile-build/
 SysMonitor.exe
 SysMonitor.cmd
+.nuitka-cache/
+.zig-cache/
+.build-tmp/
 
 # 编辑器
 .vscode/

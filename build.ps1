@@ -8,7 +8,7 @@ Set-Location $PSScriptRoot
 
 uv sync --group dev
 uv run python -m nuitka --standalone --onefile `
-    --windows-console-mode=disable --windows-uac-admin `
+    --windows-console-mode=disable `
     --plugin-enable=pyqt6 --include-raw-dir=libs=libs --clean-cache=all `
     --windows-icon-from-ico=libs/logo.ico `
     -o SysMonitor.exe main.py

@@ -1,6 +1,5 @@
 import ctypes
 import datetime
-import os
 import platform
 import winreg
 
@@ -23,7 +22,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QPushButton,
 )
-from PyQt6.QtCore import QTimer
 from PyQt6.QtNetwork import QLocalServer
 
 from ..utils.config import ThemeConfig, THEME_ORDER, THEME_LABELS, resolve_colors

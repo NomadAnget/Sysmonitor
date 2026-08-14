@@ -1,19 +1,11 @@
+import ctypes
 import logging
 import os
-import subprocess
+from ctypes import wintypes
 
 from .utils import res_path
 
 logging.basicConfig(level=logging.INFO)
-
-
-def _is_admin():
-    try:
-        import ctypes
-
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except Exception:
-        return False
 
 
 def is_pawnio_installed():
@@ -29,78 +21,58 @@ def is_pawnio_installed():
         return None
 
 
-def _device_working():
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        handle = ctypes.windll.kernel32.CreateFileW(
-            "\\\\.\\PawnIO",
-            0,
-            0,
-            None,
-            3,
-            0,
-            None,
-        )
-        if handle != -1:
-            ctypes.windll.kernel32.CloseHandle(handle)
-            return True
-        return False
-    except Exception:
-        return False
-
-
-def _run_setup(args):
+def install_pawnio_elevated():
     setup = res_path("libs", "PawnIO_setup.exe")
     if not os.path.exists(setup):
-        import logging
-
         logging.warning("PawnIO setup not found at %s", setup)
         return False
+
+    class _ShellExecuteInfo(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("fMask", ctypes.c_ulong),
+            ("hwnd", wintypes.HWND),
+            ("lpVerb", wintypes.LPCWSTR),
+            ("lpFile", wintypes.LPCWSTR),
+            ("lpParameters", wintypes.LPCWSTR),
+            ("lpDirectory", wintypes.LPCWSTR),
+            ("nShow", ctypes.c_int),
+            ("hInstApp", wintypes.HINSTANCE),
+            ("lpIDList", ctypes.c_void_p),
+            ("lpClass", wintypes.LPCWSTR),
+            ("hkeyClass", wintypes.HKEY),
+            ("dwHotKey", wintypes.DWORD),
+            ("hIcon", wintypes.HANDLE),
+            ("hProcess", wintypes.HANDLE),
+        ]
+
     try:
-        r = subprocess.run([setup] + args, capture_output=True, text=True, timeout=120)
-        ok = r.returncode == 0 or r.returncode == 3010
-        import logging
+        info = _ShellExecuteInfo()
+        info.cbSize = ctypes.sizeof(info)
+        info.fMask = 0x00000040  # SEE_MASK_NOCLOSEPROCESS
+        info.lpVerb = "runas"
+        info.lpFile = setup
+        info.lpParameters = "-install -silent"
+        info.nShow = 1
+        shell32 = ctypes.windll.shell32
+        if not shell32.ShellExecuteExW(ctypes.byref(info)):
+            raise ctypes.WinError()
 
-        logging.info(
-            "PawnIO setup %s exit=%d%s%s",
-            args,
-            r.returncode,
-            " REBOOT_REQUIRED" if r.returncode == 3010 else "",
-            " ok" if ok else "",
-        )
-        if not ok and (r.stdout.strip() or r.stderr.strip()):
-            logging.warning(
-                "PawnIO setup %s stdout=%s stderr=%s",
-                args,
-                r.stdout.strip(),
-                r.stderr.strip(),
-            )
+        if ctypes.windll.kernel32.WaitForSingleObject(info.hProcess, 120000) == 0x102:
+            logging.warning("PawnIO setup timed out")
+            return False
+        exit_code = wintypes.DWORD()
+        ctypes.windll.kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(exit_code))
+        ok = exit_code.value in (0, 3010) or is_pawnio_ready()
+        logging.info("PawnIO setup exit=%d%s", exit_code.value, " ok" if ok else "")
         return ok
-    except subprocess.TimeoutExpired:
-        import logging
-
-        logging.warning("PawnIO setup %s timed out", args)
-        return False
     except Exception as e:
-        import logging
-
-        logging.warning("PawnIO setup %s failed: %s", args, e)
+        logging.warning("PawnIO setup failed: %s", e)
         return False
+    finally:
+        if "info" in locals() and info.hProcess:
+            ctypes.windll.kernel32.CloseHandle(info.hProcess)
 
 
-def install_pawnio():
-    return _run_setup(["-install", "-silent"])
-
-
-def uninstall_pawnio():
-    return _run_setup(["-uninstall", "-silent"])
-
-
-def ensure_pawnio():
-    if is_pawnio_installed() and _device_working():
-        return True
-    if not _is_admin():
-        return False
-    return install_pawnio()
+def is_pawnio_ready():
+    return bool(is_pawnio_installed())

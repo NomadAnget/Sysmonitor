@@ -23,7 +23,7 @@ sysmonitor/
 ├── core/                # UI entry & window
 │   ├── main.py          # QApp → single-instance → splash → init → MonitorWindow → app.exec
 │   ├── window.py        # MonitorWindow (700px wide, dynamic height, Mica, connects MonitorData signals)
-│   ├── splash.py        # SplashWindow (frameless loading progress during init)
+│   ├── splash.py        # SplashWindow (frameless loading progress + in-splash prompt buttons)
 │   └── single_instance.py  # Named mutex + QLocalServer IPC
 ├── data/                # Data & monitor backends
 │   ├── monitor_data.py  # MonitorData (QObject): owns QTimers, background threads, emits Qt signals
@@ -35,7 +35,7 @@ sysmonitor/
 │   └── widgets.py       # MeterRow, Sparkline, CoreGrid
 └── utils/
     ├── config.py        # ThemeConfig global class + resolve_colors
-    ├── elevation.py     # is_admin, try_elevate (unused in current main flow)
+    ├── elevation.py     # is_admin, try_elevate (CPU temp UAC elevation)
     ├── pawnio.py        # PawnIO kernel driver detection + silent install
     └── utils.py         # res_path, fmt_bytes, cpu_name, level_color, bar_style
 ```
@@ -47,13 +47,13 @@ Root `main.py` is `from sysmonitor.core.main import main; main()`.
 1. `QApplication` init → `acquire_single_instance()` (named mutex `Local\SysMonitor_SingleInstance_Mutex`)
 2. If second instance: `notify_existing_instance()` (QLocalSocket) then exit
 3. `setQuitOnLastWindowClosed(False)` for tray
-4. `SplashWindow` shown (frameless loading window, centered, progress bar + status label)
-5. `ensure_pawnio()` → `CpuSensors()` → `GpuBackend()` → `NetworkETW()`
-6. `MonitorData(gpu, net_etw, cpu_sensors)` created
-7. `MonitorWindow(data)` → `start_single_instance_server()` → splash closed → `show()`
-8. `app.aboutToQuit.connect(uninstall_pawnio)`
+4. `SplashWindow` shown (frameless, centered, progress bar + status label + window icon)
+5. CPU temperature prompt (in-splash): if not admin, offer to restart elevated via `try_elevate("--enable-cpu-temperature")`; if admin but PawnIO missing, offer to install driver via `install_pawnio_elevated()`
+6. `CpuSensors()` → `GpuBackend()` → `NetworkETW()`
+7. `MonitorData(gpu, net_etw, cpu_sensors)` created
+8. `MonitorWindow(data)` → `start_single_instance_server()` → splash closed → `show()`
 
-**No UAC auto-elevation** in current entry flow. `elevation.py` exists but is not called from main. The `--elevated` flag handling mentioned in older docs was removed.
+CPU temperature elevation is opt-in through `SplashWindow.prompt()` (no separate dialog). Before restarting elevated, `release_single_instance(handle)` frees the mutex so the elevated process can re-acquire it.
 
 ## Data flow & threading
 
@@ -108,7 +108,7 @@ Key assets: `libs/logo.ico`, `libs/LHM/*.dll`, `libs/PawnIO_setup.exe`.
 
 ## PawnIO driver
 
-`pawnio.py` detects and silently installs the PawnIO kernel driver via `PawnIO_setup.exe -silent`. Required for LHM to read CPU temperature/frequency via MSR. Auto-installed in `core/main.py` via `ensure_pawnio()` if admin; graceful fallback if not. Uninstalled on `app.aboutToQuit`.
+`pawnio.py` detects (`is_pawnio_installed` / `is_pawnio_ready`) and installs (`install_pawnio_elevated`) the PawnIO kernel driver. Installation uses `ShellExecuteExW(lpVerb="runas")` for UAC elevation and waits for process exit (0/3010 = success). Required for LHM to read CPU temperature via MSR. Installed only after in-splash user confirmation; no uninstall on quit.
 
 ## Build / CI quirks
 
@@ -116,7 +116,7 @@ Key assets: `libs/logo.ico`, `libs/LHM/*.dll`, `libs/PawnIO_setup.exe`.
 
 **Nuitka** (primary): `.\build.ps1` runs `get-deps.ps1`, `uv sync --group dev`, then:
 ```
-uv run python -m nuitka --standalone --onefile --windows-console-mode=disable --windows-uac-admin --plugin-enable=pyqt6 --include-raw-dir=libs=libs --windows-icon-from-ico=libs/logo.ico --clean-cache=all -o SysMonitor.exe main.py
+uv run python -m nuitka --standalone --onefile --windows-console-mode=disable --plugin-enable=pyqt6 --include-raw-dir=libs=libs --windows-icon-from-ico=libs/logo.ico --clean-cache=all -o SysMonitor.exe main.py
 ```
 
 **PyInstaller** (alternative): `pyinstaller SysMonitor.spec` (note: `SysMonitor.spec` explicitly collects `pythonnet` + `clr_loader` hidden imports for CpuSensors LHM support).
@@ -138,6 +138,6 @@ uv run python -m nuitka --standalone --onefile --windows-console-mode=disable --
 - History storage: `deque(maxlen=600)` in Sparkline.
 - `MeterRow.set_value()` only calls `setStyleSheet` when color tier changes (optimization).
 - `psutil.cpu_percent(percpu=True)` called once at `MonitorData` init to calibrate.
-- Memory frequency queried once via PowerShell subprocess (`Get-CimInstance Win32_PhysicalMemory`).
+- Memory frequency queried once via WMI COM (`pythoncom` + `win32com.client`, `Win32_PhysicalMemory.Speed`).
 - `cpu_name()` reads `ProcessorNameString` from registry (matches Task Manager).
 - All Python code in `sysmonitor/` package (root `main.py` is just `from sysmonitor.core.main import main; main()`).

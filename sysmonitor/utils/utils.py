@@ -3,7 +3,6 @@ import sys
 import platform
 
 from .config import ThemeConfig
-from PyQt6.QtGui import QColor
 
 
 def res_path(*parts):

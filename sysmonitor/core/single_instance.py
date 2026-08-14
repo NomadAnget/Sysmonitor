@@ -17,6 +17,11 @@ def acquire_single_instance(retries=1):
     return None
 
 
+def release_single_instance(handle):
+    if handle:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
 def notify_existing_instance():
     try:
         from PyQt6.QtNetwork import QLocalSocket

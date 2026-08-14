@@ -9,7 +9,7 @@ from PyQt6.QtGui import (
     QPolygonF,
     QLinearGradient,
 )
-from PyQt6.QtWidgets import QWidget, QLabel, QProgressBar, QHBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QWidget
 
 from ..utils.config import ThemeConfig
 from ..utils.utils import level_color, bar_style
